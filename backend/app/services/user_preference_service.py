@@ -72,7 +72,8 @@ class UserPreferenceService:
                         window_size INTEGER DEFAULT 20,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         interactions_since_update INTEGER DEFAULT 0,
-                        preference_update_threshold INTEGER DEFAULT 15
+                        preference_update_threshold INTEGER DEFAULT 15,
+                        watched_videos JSONB DEFAULT '[]'::jsonb
                     );
                     """
                     
@@ -98,6 +99,16 @@ class UserPreferenceService:
                     
                     cur.execute(create_preferences_table_sql)
                     cur.execute(create_interactions_table_sql)
+                    
+                    # Add watched_videos column if it doesn't exist (migration for existing tables)
+                    try:
+                        cur.execute("""
+                            ALTER TABLE user_preferences 
+                            ADD COLUMN IF NOT EXISTS watched_videos JSONB DEFAULT '[]'::jsonb;
+                        """)
+                        print("✅ Watched videos column added/verified")
+                    except Exception as migration_error:
+                        print(f"⚠️  Migration warning (column may already exist): {migration_error}")
                     
                     # Create indexes
                     for index_sql in create_indexes_sql:
@@ -150,6 +161,12 @@ class UserPreferenceService:
             
             # Store interaction in database
             self._store_interaction(user_id, video_id, interaction_type, weight, video_embedding)
+            
+            # Add video to watched list (for certain interaction types)
+            # We consider "view", "like", "save", "comment", "share" as indicators that user has watched the video
+            watched_interaction_types = {"view", "like", "save", "comment", "share"}
+            if interaction_type in watched_interaction_types:
+                self.add_watched_video(user_id, original_video_id)
             
             # Check if preference should be updated
             should_update = self._should_update_preference(user_id)
@@ -209,9 +226,9 @@ class UserPreferenceService:
                     default_vector = self._get_default_preference()
                     
                     cur.execute("""
-                        INSERT INTO user_preferences (user_uid, preference_vector, window_size, interactions_since_update, preference_update_threshold)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """, (user_id, json.dumps(default_vector), self.window_size, 0, self.preference_update_threshold))
+                        INSERT INTO user_preferences (user_uid, preference_vector, window_size, interactions_since_update, preference_update_threshold, watched_videos)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (user_id, json.dumps(default_vector), self.window_size, 0, self.preference_update_threshold, json.dumps([])))
                     
                     conn.commit()
                     print(f"✅ Created user preference for user: {user_id}")
@@ -289,7 +306,7 @@ class UserPreferenceService:
             with self._get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(
-                        "SELECT preference_vector, window_size, last_updated, interactions_since_update FROM user_preferences WHERE user_uid = %s",
+                        "SELECT preference_vector, window_size, last_updated, interactions_since_update, watched_videos FROM user_preferences WHERE user_uid = %s",
                         (user_id,)
                     )
                     
@@ -299,7 +316,8 @@ class UserPreferenceService:
                             "vector": result['preference_vector'],
                             "window_size": result['window_size'],
                             "last_updated": result['last_updated'].isoformat() if result['last_updated'] else None,
-                            "interactions_since_update": result['interactions_since_update']
+                            "interactions_since_update": result['interactions_since_update'],
+                            "watched_videos": result['watched_videos'] if result['watched_videos'] else []
                         }
                     return None
                     
@@ -398,7 +416,8 @@ class UserPreferenceService:
                 preference_embedding=preference_data.get("vector", []),
                 window_size=preference_data.get("window_size", self.window_size),
                 last_updated=preference_data.get("last_updated", ""),
-                interactions_since_update=preference_data.get("interactions_since_update", 0)
+                interactions_since_update=preference_data.get("interactions_since_update", 0),
+                watched_videos=preference_data.get("watched_videos", [])
             )
             
         except Exception as e:
@@ -490,4 +509,100 @@ class UserPreferenceService:
                         
         except Exception as e:
             print(f"❌ Error resetting interaction counter: {e}")
+    
+    def add_watched_video(self, user_id: str, video_id: str) -> bool:
+        """Add a video ID to the user's watched videos list"""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Ensure user preference exists
+                    if not self._user_preference_exists(user_id):
+                        self._create_user_preference(user_id)
+                    
+                    # Check if video is already in watched list
+                    if self.has_watched_video(user_id, video_id):
+                        return True  # Already watched, no need to add again
+                    
+                    # Add video to watched list
+                    cur.execute("""
+                        UPDATE user_preferences 
+                        SET watched_videos = watched_videos || %s::jsonb
+                        WHERE user_uid = %s
+                    """, (json.dumps([video_id]), user_id))
+                    
+                    conn.commit()
+                    print(f"✅ Added video {video_id} to watched list for user {user_id}")
+                    return True
+                    
+        except Exception as e:
+            print(f"❌ Error adding watched video: {e}")
+            return False
+    
+    def has_watched_video(self, user_id: str, video_id: str) -> bool:
+        """Check if a user has already watched a specific video"""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT watched_videos ? %s
+                        FROM user_preferences 
+                        WHERE user_uid = %s
+                    """, (video_id, user_id))
+                    
+                    result = cur.fetchone()
+                    return result[0] if result else False
+                    
+        except Exception as e:
+            print(f"❌ Error checking watched video: {e}")
+            return False
+    
+    def get_watched_videos(self, user_id: str) -> List[str]:
+        """Get the list of video IDs that a user has watched"""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT watched_videos
+                        FROM user_preferences 
+                        WHERE user_uid = %s
+                    """, (user_id,))
+                    
+                    result = cur.fetchone()
+                    if result and result[0]:
+                        return result[0]  # JSONB is automatically parsed
+                    return []
+                    
+        except Exception as e:
+            print(f"❌ Error getting watched videos: {e}")
+            return []
+    
+    def remove_watched_video(self, user_id: str, video_id: str) -> bool:
+        """Remove a video ID from the user's watched videos list (if needed for testing/admin)"""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE user_preferences 
+                        SET watched_videos = watched_videos - %s
+                        WHERE user_uid = %s
+                    """, (video_id, user_id))
+                    
+                    conn.commit()
+                    print(f"✅ Removed video {video_id} from watched list for user {user_id}")
+                    return True
+                    
+        except Exception as e:
+            print(f"❌ Error removing watched video: {e}")
+            return False
+    
+    def get_unwatched_videos_from_list(self, user_id: str, video_ids: List[str]) -> List[str]:
+        """Filter a list of video IDs to return only those the user hasn't watched"""
+        try:
+            watched_videos = self.get_watched_videos(user_id)
+            watched_set = set(watched_videos)
+            return [vid for vid in video_ids if vid not in watched_set]
+            
+        except Exception as e:
+            print(f"❌ Error filtering unwatched videos: {e}")
+            return video_ids  # Return all videos if there's an error
     

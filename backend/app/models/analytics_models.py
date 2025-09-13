@@ -65,4 +65,5 @@ class UserPreference(BaseModel):
     preference_embedding: List[float] = Field(..., description="User preference vector")
     window_size: int = Field(default=20, description="Size of interaction window")
     last_updated: str = Field(..., description="ISO timestamp of last update")
-    interactions_since_update: int = Field(default=0, description="Number of interactions since last update") 
+    interactions_since_update: int = Field(default=0, description="Number of interactions since last update")
+    watched_videos: List[str] = Field(default=[], description="List of video IDs the user has watched") 

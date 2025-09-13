@@ -791,6 +791,113 @@ async def get_user_interactions(user_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get user interactions: {str(e)}")
 
+@router.get("/user-preference/{user_id}/watched-videos")
+async def get_user_watched_videos(user_id: str):
+    """
+    Get list of video IDs that a user has watched
+    
+    Args:
+        user_id: User identifier
+        
+    Returns:
+        List of watched video IDs
+    """
+    try:
+        watched_videos = user_preference_service.get_watched_videos(user_id)
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "watched_videos": watched_videos,
+            "count": len(watched_videos)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get watched videos: {str(e)}")
+
+@router.post("/user-preference/{user_id}/watched-videos/{video_id}")
+async def add_watched_video(user_id: str, video_id: str):
+    """
+    Manually add a video to user's watched list (mainly for testing/admin)
+    
+    Args:
+        user_id: User identifier
+        video_id: Video identifier to mark as watched
+        
+    Returns:
+        Operation result
+    """
+    try:
+        success = user_preference_service.add_watched_video(user_id, video_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Video {video_id} added to watched list for user {user_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to add video {video_id} to watched list"
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add watched video: {str(e)}")
+
+@router.get("/user-preference/{user_id}/has-watched/{video_id}")
+async def check_if_user_watched_video(user_id: str, video_id: str):
+    """
+    Check if a user has watched a specific video
+    
+    Args:
+        user_id: User identifier
+        video_id: Video identifier to check
+        
+    Returns:
+        Boolean indicating if video was watched
+    """
+    try:
+        has_watched = user_preference_service.has_watched_video(user_id, video_id)
+        
+        return {
+            "success": True,
+            "user_id": user_id,
+            "video_id": video_id,
+            "has_watched": has_watched
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check watched video: {str(e)}")
+
+@router.delete("/user-preference/{user_id}/watched-videos/{video_id}")
+async def remove_watched_video(user_id: str, video_id: str):
+    """
+    Remove a video from user's watched list (mainly for testing/admin)
+    
+    Args:
+        user_id: User identifier
+        video_id: Video identifier to remove from watched list
+        
+    Returns:
+        Operation result
+    """
+    try:
+        success = user_preference_service.remove_watched_video(user_id, video_id)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Video {video_id} removed from watched list for user {user_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to remove video {video_id} from watched list"
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to remove watched video: {str(e)}")
+
 # ============================================================================
 # POSTGRESQL VIDEO DATABASE ENDPOINTS
 # ============================================================================
