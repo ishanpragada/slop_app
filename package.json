@@ -1,0 +1,17 @@
+{
+  "name": "slop-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["frontend"],
+  "scripts": {
+    "dev": "concurrently \"npm run backend:dev\" \"npm run frontend:dev\"",
+    "frontend:dev": "cd frontend && npm start",
+    "backend:dev": "cd backend && uvicorn app.main:app --reload --port 8000",
+    "frontend:install": "cd frontend && npm install",
+    "backend:install": "cd backend && pip install -r requirements.txt",
+    "install:all": "npm run frontend:install && npm run backend:install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 

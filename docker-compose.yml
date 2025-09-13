@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  # Frontend - React Native + Expo
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: slop-frontend
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npx expo start --web
+    depends_on:
+      - backend
+
+  # Backend - FastAPI
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: slop-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # AWS credentials will be inherited from host environment
+      # Use one of: aws configure, aws configure sso, or AWS_PROFILE
+    volumes:
+      - ./backend:/app
+      # Mount AWS credentials from host (if using ~/.aws/)
+      - ~/.aws:/root/.aws:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload 

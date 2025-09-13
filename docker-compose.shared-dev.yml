@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # Backend for shared development environment
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: slop-backend-shared-dev
+    ports:
+      - "8000:8000"
+          environment:
+        # AWS Configuration for shared development
+      - AWS_DEFAULT_REGION=us-east-2
+      
+      # S3 buckets for shared development
+      - VIDEOS_BUCKET_NAME=slop-videos-shared-dev
+      - METADATA_BUCKET_NAME=slop-metadata-shared-dev
+      
+    volumes:
+      - ./backend:/app
+      # Mount AWS credentials from host (if using ~/.aws/)
+      - ~/.aws:/root/.aws:ro
+    networks:
+      - slop-shared-dev-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+networks:
+  slop-shared-dev-network:
+    driver: bridge 
