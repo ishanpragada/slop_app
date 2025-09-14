@@ -61,6 +61,7 @@ interface VideoFeedProps {
   onFollow?: () => void;
   onProfilePress?: () => void;
   onInteractionTracked?: (response: UserPreferenceResponse) => void;
+  isPaused?: boolean;
 }
 
 interface VideoItemProps {
@@ -73,6 +74,7 @@ interface VideoItemProps {
   onFollow: () => void;
   onProfilePress: () => void;
   onInteractionTracked?: (response: UserPreferenceResponse) => void;
+  isPaused?: boolean;
 }
 
 const VideoItem: React.FC<VideoItemProps> = ({
@@ -85,6 +87,7 @@ const VideoItem: React.FC<VideoItemProps> = ({
   onFollow,
   onProfilePress,
   onInteractionTracked,
+  isPaused = false,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
@@ -130,7 +133,7 @@ const VideoItem: React.FC<VideoItemProps> = ({
   });
 
   useEffect(() => {
-    if (isActive && player.status === 'readyToPlay' && !isManuallyPaused) {
+    if (isActive && player.status === 'readyToPlay' && !isManuallyPaused && !isPaused) {
       try {
         if (__DEV__) {
           console.log('Starting video playback for active video');
@@ -139,17 +142,19 @@ const VideoItem: React.FC<VideoItemProps> = ({
       } catch (error) {
         console.error('Error playing video:', error);
       }
-    } else if (!isActive) {
+    } else if (!isActive || isPaused) {
       try {
         player.pause();
-        setIsManuallyPaused(false); // Reset manual pause state when video becomes inactive
-        // Reset interaction tracking when video becomes inactive
-        resetInteraction();
+        if (!isActive) {
+          setIsManuallyPaused(false); // Reset manual pause state when video becomes inactive
+          // Reset interaction tracking when video becomes inactive
+          resetInteraction();
+        }
       } catch (error) {
         console.error('Error pausing video:', error);
       }
     }
-  }, [isActive, player.status, isManuallyPaused, resetInteraction, player]);
+  }, [isActive, player.status, isManuallyPaused, isPaused, resetInteraction, player]);
 
   useEffect(() => {
     player.muted = isMuted;
@@ -297,6 +302,7 @@ export const VideoFeedWithAPI: React.FC<VideoFeedProps> = ({
   onFollow,
   onProfilePress,
   onInteractionTracked,
+  isPaused = false,
 }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -459,6 +465,7 @@ export const VideoFeedWithAPI: React.FC<VideoFeedProps> = ({
       onFollow={onFollow || (() => {})}
       onProfilePress={onProfilePress || (() => {})}
       onInteractionTracked={handleInteractionTracked}
+      isPaused={isPaused}
     />
   );
 
@@ -612,13 +619,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000000',
     paddingHorizontal: 40,
-  },
-  errorText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
   },
   errorSubtext: {
     color: '#9BA1A6',

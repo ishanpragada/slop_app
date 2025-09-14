@@ -12,7 +12,6 @@ import { Comments } from './Comments';
 import { DiscoverScreen } from './DiscoverScreen';
 import { InboxScreen } from './InboxScreen';
 import { SoundPage } from './SoundPage';
-import { TikTokTabBar } from './TikTokTabBar';
 import { UserProfile } from './UserProfile';
 import { VideoFeedWithAPI } from './VideoFeedWithAPI';
 import { UserPreferenceResponse } from '../services/userPreferenceService';
@@ -134,6 +133,7 @@ export const TikTokApp: React.FC = () => {
             onFollow={handleFollow}
             onProfilePress={handleProfilePress}
             onInteractionTracked={handleInteractionTracked}
+            isPaused={activeModal !== null}
           />
         );
       case 'discover':
