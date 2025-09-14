@@ -10,8 +10,9 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-# Make sure your API key is set
-# export GEMINI_API_KEY="your-api-key-here"
+# Make sure your API keys are set
+# export GEMINI_API_KEY="your-gemini-api-key-here"  # For video generation
+# export CLAUDE_API_KEY="your-claude-api-key-here"   # For text generation
 
 load_dotenv()
 client = genai.Client()

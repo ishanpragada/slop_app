@@ -277,18 +277,6 @@ const VideoItem: React.FC<VideoItemProps> = ({
         </View>
       )}
 
-      {/* Debug Info Overlay - only show in development */}
-      {__DEV__ && (
-        <View style={styles.debugOverlay}>
-          <Text style={styles.debugText}>Watch: {watchTime.toFixed(1)}s</Text>
-          <Text style={styles.debugText}>
-            {hasTrackedView ? '✅ View' : hasTrackedSkip ? '⏭️ Skip' : '⏳ Watching...'}
-          </Text>
-          <Text style={styles.debugText}>
-            {isLiked ? '❤️ Liked' : '🤍 Not liked'} {isLikeLoading && '🔄'}
-          </Text>
-        </View>
-      )}
 
     </View>
   );
@@ -659,20 +647,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     fontWeight: '500',
-  },
-  debugOverlay: {
-    position: 'absolute',
-    top: 100,
-    left: 15,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    padding: 10,
-    borderRadius: 8,
-    minWidth: 120,
-  },
-  debugText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    marginBottom: 2,
-    fontFamily: 'monospace',
   },
 }); 

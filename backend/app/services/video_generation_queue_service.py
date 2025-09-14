@@ -4,6 +4,7 @@ import math
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from dotenv import load_dotenv
+import anthropic
 from app.services.redis_service import RedisService
 from app.services.pinecone_service import PineconeService
 from app.services.database_service import DatabaseService
@@ -24,6 +25,11 @@ class VideoGenerationQueueService:
         self.pinecone_service = PineconeService()
         self.database_service = DatabaseService()
         self.prompt_service = PromptGenerationService()
+        
+        # Initialize Claude client for text generation
+        self.claude_client = anthropic.Anthropic(
+            api_key=os.getenv("CLAUDE_API_KEY")
+        )
     
     def process_new_preference_vector(self, user_id: str, preference_vector: List[float]) -> Dict[str, Any]:
         """
@@ -398,7 +404,7 @@ class VideoGenerationQueueService:
             print("🤖 Generating new similar prompts using LLM...")
             
             # Extract existing prompt for context
-            existing_prompt_texts = [p["prompt"] for p in existing_prompts[:1]]
+            existing_prompt_texts = [p["prompt"] for p in existing_prompts[:5]]
             
             # Generate new prompts based on existing ones or preference
             new_prompts = self._generate_prompts_with_llm(existing_prompt_texts)
@@ -475,15 +481,16 @@ class VideoGenerationQueueService:
                 Return only the prompt, without numbering or bullets.
                 """
             
-            # Use the existing prompt generation service
-            response = self.prompt_service.client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=llm_prompt
+            # Use Claude for text generation
+            response = self.claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=200,
+                messages=[{"role": "user", "content": llm_prompt}]
             )
             
-            if response and response.text:
+            if response and response.content:
                 # Parse the response to extract individual prompts
-                raw_prompts = response.text.strip().split('\n')
+                raw_prompts = response.content[0].text.strip().split('\n')
                 new_prompts = []
                 
                 for prompt in raw_prompts:
@@ -607,15 +614,16 @@ class VideoGenerationQueueService:
                 Return only the prompt text, without numbering or bullets.
                 """
             
-            # Use the existing prompt generation service
-            response = self.prompt_service.client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=llm_prompt
+            # Use Claude for text generation
+            response = self.claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                messages=[{"role": "user", "content": llm_prompt}]
             )
             
-            if response and response.text:
+            if response and response.content:
                 # Clean up the response
-                cleaned_prompt = response.text.strip()
+                cleaned_prompt = response.content[0].text.strip()
                 
                 # Remove any numbering or bullets
                 if cleaned_prompt.startswith(('1.', '2.', '3.', '-', '*')):

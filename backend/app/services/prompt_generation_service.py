@@ -4,11 +4,16 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+import anthropic
 
 class PromptGenerationService:
     def __init__(self):
         load_dotenv()
         self.client = genai.Client()
+        # Initialize Claude client for text generation
+        self.claude_client = anthropic.Anthropic(
+            api_key=os.getenv("CLAUDE_API_KEY")
+        )
         
         # Predefined categories for variety
         self.categories = [
@@ -36,30 +41,29 @@ class PromptGenerationService:
         ]
     
     def generate_random_topic(self) -> str:
-        """Generate a random funny/interesting topic using Gemini"""
+        """Generate a random funny/interesting topic using Claude"""
         try:
-            prompt = """
-            Generate a single, creative, and engaging video concept that would be perfect for a short 8-second video. 
-            Make it funny, interesting, or surprising. Focus on everyday situations with a twist.
+            prompt = """Generate a single, creative, and engaging video concept that would be perfect for a short 8-second video. 
+Make it funny, interesting, or surprising. Focus on everyday situations with a twist.
+
+Requirements:
+- Should be something that can be visually interesting
+- Include a clear subject and action
+- Should be relatable or humorous
+- Keep it simple but engaging
+
+Return only the concept description, nothing else."""
             
-            Requirements:
-            - Should be something that can be visually interesting
-            - Include a clear subject and action
-            - Should be relatable or humorous
-            - Keep it simple but engaging
-            
-            Return only the concept description, nothing else.
-            """
-            
-            response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=prompt
+            response = self.claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=150,
+                messages=[{"role": "user", "content": prompt}]
             )
             
-            return response.text.strip()
+            return response.content[0].text.strip()
             
         except Exception as e:
-            # Fallback to predefined topics if Gemini fails
+            # Fallback to predefined topics if Claude fails
             fallback_topics = [
                 "A cat trying to open a door with its paw",
                 "Someone discovering their phone is in their pocket after searching everywhere",
@@ -89,39 +93,38 @@ class PromptGenerationService:
             if not base_topic:
                 base_topic = self.generate_random_topic()
             
-            # Build the detailed prompt using Gemini
-            prompt_template = f"""
-            Create a detailed, cinematic prompt for Veo 3 Fast video generation based on this concept: "{base_topic}"
+            # Build the detailed prompt using Claude
+            prompt_template = f"""Create a detailed, cinematic prompt for Veo 3 Fast video generation based on this concept: "{base_topic}"
+
+The prompt should include ALL of these elements:
+
+1. SUBJECT: Who or what is in the scene (be specific about appearance, clothing, age)
+2. CONTEXT: Where the scene takes place (specific location, environment)
+3. ACTION: What the subject is doing (detailed movement, gestures, expressions)
+4. STYLE: Visual aesthetic (choose from: {', '.join(self.visual_styles)})
+5. CAMERA: Camera movement and angle (choose from: {', '.join(self.camera_movements)})
+6. COMPOSITION: How the shot is framed (wide shot, medium shot, close-up, etc.)
+7. AMBIANCE: Mood and lighting (choose from: {', '.join(self.lighting_styles)})
+8. DETAILS: Small visual details that add character
+
+Important guidelines:
+- Make it cinematic and visually interesting
+- Include specific visual details
+- Create a clear mood or emotion
+- Make it engaging for 8 seconds
+- Focus on visual storytelling
+- Be specific about colors, textures, and lighting
+- Include subtle movements or actions
+
+Return only the detailed prompt, nothing else. Make it 2-3 sentences maximum."""
             
-            The prompt should include ALL of these elements:
-            
-            1. SUBJECT: Who or what is in the scene (be specific about appearance, clothing, age)
-            2. CONTEXT: Where the scene takes place (specific location, environment)
-            3. ACTION: What the subject is doing (detailed movement, gestures, expressions)
-            4. STYLE: Visual aesthetic (choose from: {', '.join(self.visual_styles)})
-            5. CAMERA: Camera movement and angle (choose from: {', '.join(self.camera_movements)})
-            6. COMPOSITION: How the shot is framed (wide shot, medium shot, close-up, etc.)
-            7. AMBIANCE: Mood and lighting (choose from: {', '.join(self.lighting_styles)})
-            8. DETAILS: Small visual details that add character
-            
-            Important guidelines:
-            - Make it cinematic and visually interesting
-            - Include specific visual details
-            - Create a clear mood or emotion
-            - Make it engaging for 8 seconds
-            - Focus on visual storytelling
-            - Be specific about colors, textures, and lighting
-            - Include subtle movements or actions
-            
-            Return only the detailed prompt, nothing else. Make it 2-3 sentences maximum.
-            """
-            
-            response = self.client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=prompt_template
+            response = self.claude_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt_template}]
             )
             
-            detailed_prompt = response.text.strip()
+            detailed_prompt = response.content[0].text.strip()
             
             # Clean up the response
             if detailed_prompt.startswith('"') and detailed_prompt.endswith('"'):
@@ -168,5 +171,5 @@ class PromptGenerationService:
             "camera_movement": random.choice(self.camera_movements),
             "lighting": random.choice(self.lighting_styles),
             "category": random.choice(self.categories),
-            "generation_method": "gemini_enhanced"
+            "generation_method": "claude_enhanced"
         } 

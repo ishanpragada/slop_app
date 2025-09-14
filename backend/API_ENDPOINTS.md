@@ -343,7 +343,8 @@ Error response format:
 ## Environment Variables
 
 Required environment variables:
-- `GEMINI_API_KEY`: Google GenAI API key for Veo 2 video generation
+- `GEMINI_API_KEY`: Google GenAI API key for Veo video generation (video generation only)
+- `CLAUDE_API_KEY`: Anthropic Claude API key for text generation and prompt enhancement
 - AWS credentials for S3 operations (configured via aws_service.py)
 
 ## Notes
