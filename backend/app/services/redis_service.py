@@ -77,11 +77,15 @@ class RedisService:
             
             # ZADD returns number of NEW elements added, 0 if element existed and was updated
             # We consider both cases as success
-            pass  # Redis ZADD operation completed
+            # Only log for debugging when needed
+            # print(f"🔍 Redis ZADD result for video {video_id}: {result} (0=updated existing, >0=new element)")
             return True  # Both new additions and score updates are successful
             
         except Exception as e:
-            pass  # Failed to add video to feed
+            print(f"❌ Failed to add video to feed: {e}")
+            print(f"   User ID: {user_id}")
+            print(f"   Video ID: {video_id}")
+            print(f"   Score: {score}")
             return False
     
     def get_feed_videos(self, user_id: str, start: int = 0, count: int = 10, reverse: bool = True) -> List[str]:

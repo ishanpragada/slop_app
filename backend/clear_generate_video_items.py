@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to remove all GENERATE_VIDEO items from Redis video generation queues
+Script to remove all items from Redis video generation queues
 """
 
 import os
@@ -13,9 +13,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
 
 from app.services.redis_service import RedisService
 
-def remove_generate_video_items():
-    """Remove all GENERATE_VIDEO items from all video generation queues"""
-    print("🧹 Removing All GENERATE_VIDEO Items from Redis Queues")
+def remove_all_queue_items():
+    """Remove all items from all video generation queues"""
+    print("🧹 Removing All Items from Redis Queues")
     print("=" * 60)
     
     load_dotenv()
@@ -41,7 +41,6 @@ def remove_generate_video_items():
             return True
         
         total_removed = 0
-        total_remaining = 0
         
         for queue_key in queue_keys:
             user_id = queue_key.replace("video_queue:", "")
@@ -54,94 +53,71 @@ def remove_generate_video_items():
                 print("📭 Queue is empty, skipping")
                 continue
             
-            # Get all items in the queue
+            # Get all items in the queue for display purposes
             queue_items = client.zrevrange(queue_key, 0, -1, withscores=True)
             
-            items_to_remove = []
-            items_to_keep = []
-            generate_video_count = 0
-            existing_video_count = 0
-            
-            # Separate GENERATE_VIDEO items from others
+            # Show which items we're removing
             for item_json, score in queue_items:
                 try:
                     item = json.loads(item_json)
                     item_type = item.get("type", "unknown")
                     
                     if item_type == "generate_video":
-                        items_to_remove.append((item_json, score))
-                        generate_video_count += 1
-                        
-                        # Show which item we're removing
                         status = item.get("status", "unknown")
                         prompt = item.get("prompt", "no prompt")
-                        print(f"   🗑️  Removing: [{status.upper()}] {prompt[:50]}{'...' if len(prompt) > 50 else ''}")
-                        
+                        print(f"   🗑️  Removing: [{item_type.upper()}] [{status.upper()}] {prompt[:50]}{'...' if len(prompt) > 50 else ''}")
+                    elif item_type == "existing_video":
+                        video_id = item.get("video_id", "unknown")
+                        print(f"   🗑️  Removing: [{item_type.upper()}] Video ID: {video_id}")
                     else:
-                        items_to_keep.append((item_json, score))
-                        if item_type == "existing_video":
-                            existing_video_count += 1
+                        print(f"   🗑️  Removing: [{item_type.upper()}] Item")
                         
                 except json.JSONDecodeError:
-                    # Keep invalid JSON items as-is (shouldn't happen but be safe)
-                    items_to_keep.append((item_json, score))
-                    print(f"   ⚠️  Keeping invalid JSON item")
+                    print(f"   🗑️  Removing: [INVALID JSON] Item")
             
-            # Remove GENERATE_VIDEO items from Redis
-            if items_to_remove:
-                for item_json, _ in items_to_remove:
-                    result = client.zrem(queue_key, item_json)
-                    if result:
-                        total_removed += 1
-                
-                print(f"   ✅ Removed {generate_video_count} GENERATE_VIDEO items")
+            # Remove ALL items from the queue
+            removed_count = client.delete(queue_key)
+            if removed_count:
+                total_removed += queue_size
+                print(f"   ✅ Removed all {queue_size} items from queue")
             else:
-                print(f"   ℹ️  No GENERATE_VIDEO items found")
-            
-            # Show final state
-            final_queue_size = client.zcard(queue_key)
-            total_remaining += final_queue_size
-            print(f"   📊 Final queue size: {final_queue_size} (kept {existing_video_count} existing videos)")
+                print(f"   ⚠️  Failed to remove items from queue")
         
         print(f"\n" + "=" * 60)
         print(f"🎯 Operation Summary:")
         print(f"   📊 Queues processed: {len(queue_keys)}")
-        print(f"   🗑️  Total GENERATE_VIDEO items removed: {total_removed}")
-        print(f"   📦 Total items remaining: {total_remaining}")
+        print(f"   🗑️  Total items removed: {total_removed}")
         
         # Verify by checking final state
-        print(f"\n🔍 Verification - checking for remaining GENERATE_VIDEO items:")
-        remaining_generate_videos = 0
+        print(f"\n🔍 Verification - checking for remaining items:")
+        remaining_queues = 0
         
-        for queue_key in queue_keys:
-            queue_items = client.zrevrange(queue_key, 0, -1)
-            
-            for item_json in queue_items:
-                try:
-                    item = json.loads(item_json)
-                    if item.get("type") == "generate_video":
-                        remaining_generate_videos += 1
-                        print(f"   ⚠️  Found remaining GENERATE_VIDEO in {queue_key}")
-                except json.JSONDecodeError:
-                    continue
+        # Re-check queue keys to see if any still exist
+        remaining_queue_keys = client.keys(queue_pattern)
         
-        if remaining_generate_videos == 0:
-            print(f"   ✅ Verification passed: No GENERATE_VIDEO items remain")
+        for queue_key in remaining_queue_keys:
+            queue_size = client.zcard(queue_key)
+            if queue_size > 0:
+                remaining_queues += 1
+                print(f"   ⚠️  Queue {queue_key} still has {queue_size} items")
+        
+        if remaining_queues == 0:
+            print(f"   ✅ Verification passed: All queues cleared")
         else:
-            print(f"   ❌ Verification failed: {remaining_generate_videos} GENERATE_VIDEO items still found")
+            print(f"   ❌ Verification failed: {remaining_queues} queues still have items")
             return False
         
         return True
         
     except Exception as e:
-        print(f"❌ Error removing GENERATE_VIDEO items: {e}")
+        print(f"❌ Error removing queue items: {e}")
         import traceback
         traceback.print_exc()
         return False
 
-def remove_generate_video_items_for_user(user_id: str):
-    """Remove GENERATE_VIDEO items from a specific user's queue"""
-    print(f"🧹 Removing GENERATE_VIDEO Items for User: {user_id}")
+def remove_all_queue_items_for_user(user_id: str):
+    """Remove all items from a specific user's queue"""
+    print(f"🧹 Removing All Items for User: {user_id}")
     print("=" * 60)
     
     load_dotenv()
@@ -163,46 +139,54 @@ def remove_generate_video_items_for_user(user_id: str):
             print("📭 Queue is empty")
             return True
         
-        # Get all items
+        # Get all items for display purposes
         queue_items = client.zrevrange(queue_key, 0, -1, withscores=True)
         
-        items_removed = 0
-        
+        # Show which items we're removing
         for item_json, score in queue_items:
             try:
                 item = json.loads(item_json)
-                if item.get("type") == "generate_video":
-                    result = client.zrem(queue_key, item_json)
-                    if result:
-                        items_removed += 1
-                        status = item.get("status", "unknown")
-                        prompt = item.get("prompt", "no prompt")
-                        print(f"   🗑️  Removed: [{status.upper()}] {prompt[:50]}{'...' if len(prompt) > 50 else ''}")
+                item_type = item.get("type", "unknown")
+                
+                if item_type == "generate_video":
+                    status = item.get("status", "unknown")
+                    prompt = item.get("prompt", "no prompt")
+                    print(f"   🗑️  Removing: [{item_type.upper()}] [{status.upper()}] {prompt[:50]}{'...' if len(prompt) > 50 else ''}")
+                elif item_type == "existing_video":
+                    video_id = item.get("video_id", "unknown")
+                    print(f"   🗑️  Removing: [{item_type.upper()}] Video ID: {video_id}")
+                else:
+                    print(f"   🗑️  Removing: [{item_type.upper()}] Item")
             except json.JSONDecodeError:
-                continue
+                print(f"   🗑️  Removing: [INVALID JSON] Item")
+        
+        # Remove ALL items from the queue
+        removed_count = client.delete(queue_key)
+        if removed_count:
+            print(f"✅ Removed all {queue_size} items from queue")
+        else:
+            print(f"⚠️  Failed to remove items from queue")
         
         final_size = client.zcard(queue_key)
-        print(f"✅ Removed {items_removed} GENERATE_VIDEO items")
         print(f"📊 Final queue size: {final_size}")
         
         return True
         
     except Exception as e:
-        print(f"❌ Error removing GENERATE_VIDEO items: {e}")
+        print(f"❌ Error removing queue items: {e}")
         import traceback
         traceback.print_exc()
         return False
 
 def confirm_operation():
     """Ask user to confirm the destructive operation"""
-    print("⚠️  WARNING: This operation will permanently remove all GENERATE_VIDEO items!")
+    print("⚠️  WARNING: This operation will permanently remove ALL items from Redis queues!")
     print("   This includes:")
-    print("   - Items with status: pending_generation")
-    print("   - Items with status: in_progress") 
-    print("   - Items with status: completed")
-    print("   - Any other GENERATE_VIDEO items")
+    print("   - All GENERATE_VIDEO items (pending, in_progress, completed)")
+    print("   - All EXISTING_VIDEO items") 
+    print("   - Any other queue items")
     print()
-    print("   EXISTING_VIDEO items will be preserved.")
+    print("   This will COMPLETELY CLEAR all video generation queues!")
     print()
     
     while True:
@@ -217,7 +201,7 @@ def confirm_operation():
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Remove GENERATE_VIDEO items from Redis queues")
+    parser = argparse.ArgumentParser(description="Remove all items from Redis queues")
     parser.add_argument("--user", help="Remove items from specific user's queue only")
     parser.add_argument("--force", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
@@ -230,9 +214,9 @@ if __name__ == "__main__":
     print("🚀 Starting removal operation...")
     
     if args.user:
-        success = remove_generate_video_items_for_user(args.user)
+        success = remove_all_queue_items_for_user(args.user)
     else:
-        success = remove_generate_video_items()
+        success = remove_all_queue_items()
     
     if success:
         print("\n✅ Removal operation completed successfully!")

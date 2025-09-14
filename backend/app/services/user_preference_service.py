@@ -183,6 +183,9 @@ class UserPreferenceService:
                 # Reset counter to 1
                 self._reset_interaction_counter(user_id)
                 
+                # Trigger video generation for the new preference vector
+                self._trigger_video_generation_for_preference(user_id, new_preference)
+                
                 return {
                     "success": True,
                     "message": f"Interaction stored and preference updated",
@@ -407,19 +410,11 @@ class UserPreferenceService:
                     conn.commit()
                     pass  # Updated user preference for user
                     
-                    # Trigger video generation queue creation for new preference vector
-                    try:
-                        print(f"🎬 Triggering video generation queue for user: {user_id}")
-                        queue_result = self.video_queue_service.process_new_preference_vector(user_id, preference_vector)
-                        
-                        if queue_result.get("success"):
-                            pass  # Video generation queue created successfully
-                        else:
-                            print(f"⚠️  Video generation queue creation failed: {queue_result.get('message', 'unknown error')}")
-                            
-                    except Exception as queue_error:
-                        pass  # Error creating video generation queue
-                        # Don't raise - preference update should still succeed even if queue creation fails
+                    # DISABLED: Video generation queue conflicts with infinite feed service
+                    # The infinite feed service now handles preference-based video selection directly
+                    print(f"📝 Preference vector updated - infinite feed service will use this for next refill")
+                    
+                    # TODO: Remove video_queue_service dependency once fully migrated to infinite feed approach
                     
         except Exception as e:
             pass  # Error saving user preference
@@ -626,4 +621,29 @@ class UserPreferenceService:
         except Exception as e:
             pass  # Error filtering unwatched videos
             return video_ids  # Return all videos if there's an error
+    
+    def _trigger_video_generation_for_preference(self, user_id: str, preference_vector: List[float]) -> None:
+        """
+        Trigger video generation when preference vector is updated
+        
+        Args:
+            user_id: User identifier
+            preference_vector: Updated preference vector
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.services.video_generation_queue_service import VideoGenerationQueueService
+            
+            print(f"🎬 Triggering video generation for updated preferences")
+            queue_service = VideoGenerationQueueService()
+            result = queue_service.process_new_preference_vector(user_id, preference_vector)
+            
+            if result.get("success"):
+                print(f"✅ Video generation triggered successfully")
+            else:
+                print(f"⚠️  Video generation trigger failed: {result.get('message', 'unknown error')}")
+                
+        except Exception as e:
+            print(f"❌ Error triggering video generation: {e}")
+            # Don't raise - preference update should succeed even if video generation fails
     

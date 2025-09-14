@@ -20,8 +20,8 @@ class FeedService:
     def __init__(self, redis_service: RedisService, aws_service: AWSService):
         self.redis_service = redis_service
         self.aws_service = aws_service
-        self.default_feed_size = 50
-        self.min_feed_threshold = 10  # Regenerate when feed has fewer than this many videos
+        self.default_feed_size = 10  # Exactly 10 videos
+        self.min_feed_threshold = 2  # Regenerate when feed has fewer than 2 videos (trigger preference update)
     
     def get_feed(self, request: FeedRequest) -> FeedResponse:
         """
@@ -41,6 +41,9 @@ class FeedService:
             
             if request.refresh or current_feed_size < self.min_feed_threshold:
                 pass  # Generating new feed for user
+                # Trigger preference update when feed is running low (2 videos remaining)
+                if current_feed_size < self.min_feed_threshold and not request.refresh:
+                    self._trigger_preference_update_if_needed(request.user_id)
                 generation_result = self.generate_feed(request.user_id, self.default_feed_size)
                 if not generation_result.success:
                     return FeedResponse(
@@ -272,3 +275,39 @@ class FeedService:
                 continue
         
         return feed_items 
+    
+    def _trigger_preference_update_if_needed(self, user_id: str) -> None:
+        """
+        Trigger preference update when feed is running low instead of waiting for 15 interactions
+        
+        Args:
+            user_id: User identifier
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.services.user_preference_service import UserPreferenceService
+            
+            user_preference_service = UserPreferenceService()
+            
+            # Check if user has enough interactions to justify an update (minimum threshold)
+            interactions_count = user_preference_service._get_interactions_since_update(user_id)
+            
+            # Only update if user has at least 3 interactions since last update
+            # This prevents updating on every refill if user just started
+            if interactions_count >= 3:
+                print(f"🎯 Feed running low for user {user_id}, triggering preference update (interactions: {interactions_count})")
+                
+                # Force preference update by calculating new vector and saving it
+                new_preference = user_preference_service._calculate_preference_vector(user_id)
+                if new_preference:
+                    user_preference_service._save_user_preference(user_id, new_preference)
+                    user_preference_service._reset_interaction_counter(user_id)
+                    print(f"✅ Preference vector updated for user {user_id} due to feed running low")
+                else:
+                    print(f"⚠️  Could not calculate preference vector for user {user_id}")
+            else:
+                print(f"📊 User {user_id} has only {interactions_count} interactions, skipping preference update")
+                
+        except Exception as e:
+            print(f"❌ Error triggering preference update for user {user_id}: {e}")
+            # Don't raise - feed should continue working even if preference update fails

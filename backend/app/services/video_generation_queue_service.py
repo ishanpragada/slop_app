@@ -37,17 +37,28 @@ class VideoGenerationQueueService:
             Dictionary with processing results
         """
         try:
-            pass  # Processing new preference vector
+            print(f"\n🎬 VIDEO GENERATION QUEUE TRIGGERED")
+            print(f"👤 User: {user_id}")
+            print(f"🧮 Processing new preference vector ({len(preference_vector)} dimensions)")
             
             # Step 1: Find similar prompt embeddings
+            print("🔍 Finding similar prompt embeddings from Pinecone...")
             similar_prompts, above_threshold_count = self._find_similar_prompt_embeddings(preference_vector)
             
-            # TEMPORARY: Force processing existing videos only, no generation
-            pass  # TEMPORARY MODE: Video generation disabled
-            pass  # Found similar prompts, using existing videos
+            print(f"📊 Found {len(similar_prompts)} similar prompts, {above_threshold_count} above threshold")
             
-            # Force to process existing videos regardless of threshold
-            return self._process_existing_similar_prompts_force_three(user_id, similar_prompts)
+            # Generate exactly 1 new video + add some existing videos for immediate content
+            print("🎯 PREFERENCE UPDATE: Generating 1 new video + adding existing videos for immediate content")
+            result = self._generate_single_new_video(user_id, similar_prompts, preference_vector)
+            
+            if result.get("success"):
+                print(f"✅ VIDEO QUEUE UPDATE COMPLETED")
+                print(f"🎬 Added {result.get('videos_added', 0)} videos to user feed")
+                print(f"📈 Strategy: {result.get('strategy', 'unknown')}")
+            else:
+                print(f"❌ VIDEO QUEUE UPDATE FAILED: {result.get('message', 'unknown error')}")
+            
+            return result
                 
         except Exception as e:
             pass  # Error processing preference vector
@@ -277,7 +288,8 @@ class VideoGenerationQueueService:
             
             pass  # Final selection of videos for queue
             
-            # TEMPORARY: Clear some space at the top of the feed for immediate visibility
+            # Clear space for new videos to maintain exactly 10 videos in feed
+            print(f"🧹 Clearing feed space for {len(valid_videos)} new videos to maintain 10-video limit")
             self._clear_feed_space_for_new_videos(user_id, len(valid_videos))
             
             # Log all prompts being added to queue
@@ -311,6 +323,63 @@ class VideoGenerationQueueService:
                 "success": False,
                 "error": str(e),
                 "message": "Failed to process forced existing similar prompts"
+            }
+    
+    def _generate_single_new_video(self, user_id: str, existing_prompts: List[Dict[str, Any]], preference_vector: List[float]) -> Dict[str, Any]:
+        """
+        Generate exactly 1 new video based on user preferences and add some existing videos to feed
+        
+        Args:
+            user_id: User identifier
+            existing_prompts: List of existing similar prompts
+            preference_vector: User preference vector
+            
+        Returns:
+            Generation results
+        """
+        try:
+            # Step 1: Add top 2 existing videos to feed immediately for immediate content
+            existing_videos_result = self._add_top_existing_videos_to_feed(user_id, existing_prompts, max_videos=2)
+            
+            # Step 2: Generate exactly 1 new video for future content
+            print("🎬 Generating 1 new video for future feed content...")
+            
+            # Extract top 5 diverse prompts for context (more variety to avoid repetition)
+            existing_prompt_texts = [p["prompt"] for p in existing_prompts[:5]] if existing_prompts else []
+            
+            # Generate 1 new prompt based on existing ones or preference
+            new_prompts = self._generate_single_prompt_with_llm(existing_prompt_texts)
+            
+            if not new_prompts:
+                print("⚠️  Failed to generate new prompt, proceeding with existing videos only")
+                return {
+                    "success": True,
+                    "strategy": "existing_only_fallback",
+                    "videos_added": existing_videos_result.get("videos_added", 0),
+                    "prompts_queued": 0,
+                    "message": "Added existing videos only (prompt generation failed)"
+                }
+            
+            # Add the single new prompt to generation queue
+            queue_result = self._add_prompts_to_generation_queue(user_id, new_prompts, preference_vector)
+            
+            return {
+                "success": True,
+                "strategy": "mixed_existing_and_generated",
+                "existing_videos_added": existing_videos_result.get("videos_added", 0),
+                "new_prompts_generated": len(new_prompts),
+                "prompts_queued": queue_result.get("prompts_added", 0),
+                "videos_added": existing_videos_result.get("videos_added", 0),
+                "queue_result": queue_result,
+                "generated_prompts": new_prompts
+            }
+            
+        except Exception as e:
+            print(f"❌ Error in single video generation: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to generate single new video"
             }
     
     def _generate_new_similar_prompts(self, user_id: str, existing_prompts: List[Dict[str, Any]], preference_vector: List[float]) -> Dict[str, Any]:
@@ -443,6 +512,201 @@ class VideoGenerationQueueService:
         except Exception as e:
             pass  # Error generating prompts with LLM
             return []
+    
+    def _generate_single_prompt_with_llm(self, reference_prompts: List[str]) -> List[str]:
+        """
+        Generate exactly 1 creative prompt using LLM based on reference prompts or user preferences
+        
+        Args:
+            reference_prompts: List of reference prompts for context (may be empty)
+            
+        Returns:
+            List containing exactly 1 new prompt (or empty list if failed)
+        """
+        try:
+            print("🤖 Generating 1 new prompt using LLM...")
+            
+            if reference_prompts:
+                # Use multiple reference prompts for maximum diversity
+                print(f"   📝 Using {len(reference_prompts)} reference prompts for maximum diversity")
+                
+                # Create a comprehensive list of elements to avoid
+                ref_prompts_text = '\n'.join([f"- {prompt}" for prompt in reference_prompts])
+                
+                llm_prompt = f"""
+                Create 1 COMPLETELY NEW and UNIQUE video prompt that is ENTIRELY DIFFERENT from these existing prompts:
+                
+                EXISTING PROMPTS TO AVOID COPYING:
+                {ref_prompts_text}
+                
+                Your new prompt MUST:
+                
+                CHARACTER DIVERSITY:
+                - Use a COMPLETELY different main character/subject (avoid animals, robots, food if they appear above)
+                - Consider: humans in interesting professions, abstract concepts, inanimate objects coming to life, mythical beings, etc.
+                
+                SETTING DIVERSITY:  
+                - Use a COMPLETELY different environment (avoid cities, forests, kitchens, space if they appear above)
+                - Consider: underwater worlds, art studios, libraries, mountains, deserts, historical periods, fantasy realms, etc.
+                
+                ACTION DIVERSITY:
+                - Use COMPLETELY different actions (avoid racing, crafting, cooking, dancing if they appear above) 
+                - Consider: learning, teaching, discovering, transforming, healing, building, problem-solving, etc.
+                
+                THEME DIVERSITY:
+                - Explore entirely different themes: education, science, history, friendship, creativity, mystery, adventure, etc.
+                - Be experimental and unexpected
+                
+                REQUIREMENTS:
+                - 8-second video suitable
+                - Visually compelling and cinematic
+                - Emotionally engaging
+                - Completely original and innovative
+                - MUST include character dialogue or narration that adds personality and engagement
+                
+                DIALOGUE GUIDELINES:
+                - Include natural, character-appropriate speech
+                - Use dialogue to reveal personality, emotion, or humor
+                - Keep it concise but impactful for 8-second format
+                - Consider inner monologue, conversations, exclamations, or commentary
+                - DO NOT use apostrophes or quotation marks in the dialogue
+                - Write dialogue naturally without punctuation marks like quotes
+                
+                Return only the prompt text, without numbering or bullets.
+                """
+            else:
+                # Fallback: generate diverse creative prompt
+                llm_prompt = """
+                Generate 1 completely original and creative video prompt suitable for an 8-second video.
+                
+                Be innovative and explore diverse themes:
+                
+                CHARACTER OPTIONS: humans in unique professions, abstract concepts, historical figures, mythical beings, everyday objects with personality
+                
+                SETTING OPTIONS: underwater worlds, art galleries, libraries, ancient temples, space stations, mountaintops, laboratories, fantasy realms
+                
+                ACTION OPTIONS: teaching, discovering, transforming, healing, investigating, creating, problem-solving, connecting, inspiring
+                
+                THEMES: education, science, history, friendship, creativity, mystery, wonder, transformation, discovery
+                
+                Make it:
+                - Visually stunning and cinematic
+                - Emotionally engaging
+                - Completely unique and unexpected
+                - Perfect for 8 seconds
+                - MUST include character dialogue or narration for personality and engagement
+                
+                DIALOGUE GUIDELINES:
+                - Include natural, character-appropriate speech
+                - Use dialogue to reveal personality, emotion, or humor
+                - Keep it concise but impactful for 8-second format
+                - Consider inner monologue, conversations, exclamations, or commentary
+                - DO NOT use apostrophes or quotation marks in the dialogue
+                - Write dialogue naturally without punctuation marks like quotes
+                
+                Return only the prompt text, without numbering or bullets.
+                """
+            
+            # Use the existing prompt generation service
+            response = self.prompt_service.client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=llm_prompt
+            )
+            
+            if response and response.text:
+                # Clean up the response
+                cleaned_prompt = response.text.strip()
+                
+                # Remove any numbering or bullets
+                if cleaned_prompt.startswith(('1.', '2.', '3.', '-', '*')):
+                    cleaned_prompt = cleaned_prompt.split('.', 1)[-1].strip() if '.' in cleaned_prompt else cleaned_prompt.lstrip('-* ')
+                
+                if cleaned_prompt:
+                    print(f"✅ Generated new prompt: {cleaned_prompt}")
+                    return [cleaned_prompt]
+                else:
+                    print("❌ LLM returned empty prompt after cleaning")
+                    return []
+            else:
+                print("❌ LLM returned empty response")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Error generating prompt with LLM: {e}")
+            return []
+    
+    def _add_top_existing_videos_to_feed(self, user_id: str, similar_prompts: List[Dict[str, Any]], max_videos: int = 2) -> Dict[str, Any]:
+        """
+        Add top existing videos to user feed immediately for instant content
+        
+        Args:
+            user_id: User identifier
+            similar_prompts: List of similar prompts with video info
+            max_videos: Maximum number of videos to add
+            
+        Returns:
+            Results of adding videos to feed
+        """
+        try:
+            if not similar_prompts:
+                return {"success": True, "videos_added": 0, "message": "No similar prompts available"}
+            
+            print(f"📺 Adding top {max_videos} existing videos to feed for immediate content...")
+            
+            videos_to_add = []
+            current_timestamp = datetime.now().timestamp()
+            
+            # Select top videos by similarity score
+            top_prompts = similar_prompts[:max_videos]
+            
+            for i, prompt_data in enumerate(top_prompts):
+                video_info = {
+                    "video_id": prompt_data["video_id"],
+                    "prompt": prompt_data["prompt"],
+                    "similarity_score": prompt_data["similarity_score"],
+                    "s3_url": self._get_video_s3_url(prompt_data["video_id"])
+                }
+                
+                if video_info["s3_url"]:
+                    videos_to_add.append(video_info)
+                    print(f"✅ SELECTED VIDEO {i+1}: ID={video_info['video_id'][:8]}..., Score={video_info['similarity_score']:.3f}")
+                    print(f"   📝 Prompt: '{video_info['prompt']}'")
+                    print(f"   🔗 S3 URL: {video_info['s3_url']}")
+            
+            if not videos_to_add:
+                return {"success": True, "videos_added": 0, "message": "No videos with valid S3 URLs found"}
+            
+            # Add videos to feed with balanced scoring (similarity + small freshness boost)
+            videos_added = 0
+            for video in videos_to_add:
+                # Balanced scoring: similarity (0.0-1.0) + small freshness boost (0.0-0.2)
+                freshness_boost = min(0.2, current_timestamp / 10000000)  # Very small boost based on timestamp
+                feed_score = video["similarity_score"] + freshness_boost
+                
+                success = self.redis_service.add_to_feed(
+                    user_id=user_id,
+                    video_id=video["video_id"], 
+                    score=feed_score
+                )
+                
+                if success:
+                    videos_added += 1
+                    print(f"✅ Added video {video['video_id'][:8]}... to user feed (similarity: {video['similarity_score']:.3f}, total score: {feed_score:.3f})")
+                    print(f"   📝 Feed Video Prompt: '{video['prompt']}'")
+            
+            return {
+                "success": True,
+                "videos_added": videos_added,
+                "message": f"Added {videos_added} existing videos to feed"
+            }
+            
+        except Exception as e:
+            print(f"❌ Error adding existing videos to feed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "videos_added": 0
+            }
     
     def _add_videos_to_queue(self, user_id: str, videos: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -634,8 +898,9 @@ class VideoGenerationQueueService:
                 try:
                     item = json.loads(item_json)
                     
-                    # Look for items that need generation
-                    if item.get("type") == "generate_video" and item.get("status") == "pending_generation":
+                    # Look for items that need generation (skip failed and in_progress tasks)
+                    if (item.get("type") == "generate_video" and 
+                        item.get("status") == "pending_generation"):
                         # Mark as in progress and return
                         item["status"] = "in_progress"
                         item["started_at"] = datetime.now().isoformat()
@@ -690,11 +955,13 @@ class VideoGenerationQueueService:
                     if (item.get("prompt") == task.get("prompt") and 
                         item.get("user_id") == task.get("user_id")):
                         
-                        # Remove old task and add updated one
+                        # REMOVE completed generation tasks from queue entirely
                         client.zrem(queue_key, item_json)
-                        client.zadd(queue_key, {json.dumps(task): score})
+                        # Don't add it back - completed generation tasks should be removed
                         
-                        pass  # Marked generation task as complete
+                        print(f"✅ Marked generation task as completed in queue for user {user_id}")
+                        print(f"   Video ID: {video_id}")
+                        print(f"   S3 URL: {s3_url}")
                         return True
                         
                 except json.JSONDecodeError:
@@ -703,7 +970,10 @@ class VideoGenerationQueueService:
             return False
             
         except Exception as e:
-            pass  # Error marking generation complete
+            print(f"❌ Error marking generation complete: {e}")
+            print(f"   User ID: {user_id}")
+            print(f"   Video ID: {video_id}")
+            print(f"   Task prompt: {task.get('prompt', 'N/A')}")
             return False
     
     def _add_videos_to_user_feed(self, user_id: str, videos: List[Dict[str, Any]]) -> None:
@@ -722,13 +992,11 @@ class VideoGenerationQueueService:
                 similarity_score = video.get("similarity_score", 0.0)
                 
                 if video_id:
-                    # TEMPORARY: Use high timestamp-based scores to ensure these videos appear FIRST
-                    # This will place them at the front of the feed for immediate visibility
-                    import time
-                    base_timestamp = time.time() * 1000  # Current timestamp in milliseconds
-                    feed_score = base_timestamp + (similarity_score * 100)  # Add similarity as bonus
+                    # Use consistent scoring based on similarity score (0.0 to 1.0 range)
+                    # Higher similarity scores get higher priority in the feed
+                    feed_score = similarity_score
                     
-                    pass  # High priority feed score calculated
+                    pass  # Consistent feed score calculated
                     
                     success = self.redis_service.add_to_feed(user_id, video_id, feed_score)
                     if success:
@@ -756,23 +1024,103 @@ class VideoGenerationQueueService:
             
             # Get current feed size
             current_size = client.zcard(feed_key)
-            pass  # Current feed size noted
+            print(f"📊 Current feed size: {current_size}")
+            print(f"🎯 Adding {num_new_videos} new videos")
+            print(f"🎯 Target feed size: 10")
             
-            if current_size > 50:  # Only clear if feed is getting long
-                # Remove some older/lower-scored videos to make room
-                # Remove the bottom 25% of videos to keep feed manageable
-                videos_to_remove = max(10, current_size // 4)
+            # NEW LOGIC: Always maintain exactly 10 videos in feed
+            # If adding new videos would exceed 10, remove older ones
+            target_feed_size = 10
+            if current_size + num_new_videos > target_feed_size:
+                # Calculate how many videos to remove to make room
+                videos_to_remove = (current_size + num_new_videos) - target_feed_size
                 
-                pass  # Removing older videos to make room
+                print(f"🚨 Feed would exceed limit! Will remove {videos_to_remove} older videos")
+                print(f"   Current: {current_size} + New: {num_new_videos} = {current_size + num_new_videos} > Target: {target_feed_size}")
+                
                 removed = client.zremrangebyrank(feed_key, 0, videos_to_remove - 1)
-                pass  # Removed older videos from feed
+                print(f"✅ Removed {removed} older videos from feed")
                 
                 # Update feed size
                 new_size = client.zcard(feed_key)
-                pass  # Feed size after cleanup
+                print(f"📊 Feed size after cleanup: {new_size}")
+                print(f"✅ After adding {num_new_videos} videos, feed will be: {new_size + num_new_videos}")
             else:
-                pass  # Feed size is manageable, no cleanup needed
+                print(f"✅ Feed size is fine: {current_size} + {num_new_videos} = {current_size + num_new_videos} ≤ {target_feed_size}")
                 
         except Exception as e:
             pass  # Error clearing feed space
             # Don't raise - this is just optimization, not critical
+    
+    def _get_video_s3_url(self, video_id: str) -> Optional[str]:
+        """
+        Get S3 URL for a video from the database
+        
+        Args:
+            video_id: Video identifier
+            
+        Returns:
+            S3 URL if found, None otherwise
+        """
+        try:
+            video_info = self.database_service.get_video_by_id(video_id)
+            if video_info:
+                return video_info.get("s3_url")
+            return None
+        except Exception as e:
+            print(f"❌ Error getting S3 URL for video {video_id}: {e}")
+            return None
+    
+    def reset_stuck_tasks(self, user_id: str, max_age_minutes: int = 10) -> int:
+        """
+        Reset tasks that have been in_progress for too long
+        
+        Args:
+            user_id: User identifier
+            max_age_minutes: Maximum time a task can be in_progress before reset
+            
+        Returns:
+            Number of tasks reset
+        """
+        try:
+            queue_key = f"video_queue:{user_id}"
+            client = self.redis_service.get_client()
+            current_time = datetime.now()
+            reset_count = 0
+            
+            # Get all items in queue
+            queue_items = client.zrevrange(queue_key, 0, -1, withscores=True)
+            
+            for item_json, score in queue_items:
+                try:
+                    item = json.loads(item_json)
+                    
+                    # Check for stuck in_progress tasks
+                    if (item.get("type") == "generate_video" and 
+                        item.get("status") == "in_progress" and
+                        item.get("started_at")):
+                        
+                        # Parse start time
+                        started_at = datetime.fromisoformat(item["started_at"])
+                        age_minutes = (current_time - started_at).total_seconds() / 60
+                        
+                        if age_minutes > max_age_minutes:
+                            # Reset task to pending
+                            item["status"] = "pending_generation"
+                            item.pop("started_at", None)
+                            
+                            # Update in queue
+                            client.zrem(queue_key, item_json)
+                            client.zadd(queue_key, {json.dumps(item): score})
+                            
+                            print(f"🔄 Reset stuck task for user {user_id} (age: {age_minutes:.1f} min)")
+                            reset_count += 1
+                        
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            
+            return reset_count
+            
+        except Exception as e:
+            print(f"❌ Error resetting stuck tasks: {e}")
+            return 0

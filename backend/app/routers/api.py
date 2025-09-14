@@ -202,6 +202,46 @@ async def get_infinite_video_feed(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get infinite video feed: {str(e)}")
 
+@router.post("/feed/infinite/{user_id}/force-reset")
+async def force_reset_infinite_feed(user_id: str):
+    """
+    Force reset a user's infinite feed to exactly 10 videos (debugging endpoint)
+    
+    Args:
+        user_id: User ID to reset feed for
+    """
+    try:
+        print(f"🔧 FORCE RESET FEED for user {user_id}")
+        
+        # Clear existing feed completely
+        print("🧹 Clearing existing feed...")
+        current_size = redis_service.get_feed_size(user_id)
+        print(f"📊 Current feed size: {current_size}")
+        
+        clear_result = redis_service.clear_feed(user_id)
+        cleared_size = redis_service.get_feed_size(user_id)
+        
+        print(f"✅ Clear result: {clear_result}")
+        print(f"📊 Feed size after clear: {cleared_size}")
+        
+        # Initialize with exactly 10 videos
+        print("🏗️  Initializing fresh feed with 10 videos...")
+        generation_result = infinite_feed_service._initialize_infinite_feed(user_id)
+        
+        final_size = redis_service.get_feed_size(user_id)
+        print(f"📊 Final feed size: {final_size}")
+        
+        return {
+            "success": True,
+            "message": f"Feed reset successfully for user {user_id}",
+            "old_size": current_size,
+            "new_size": final_size,
+            "generation_result": generation_result.__dict__
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset feed: {str(e)}")
+
 @router.get("/feed/infinite/stats/{user_id}")
 async def get_infinite_feed_stats(user_id: str):
     """
@@ -420,13 +460,26 @@ async def generate_ai_video_complete(
         Complete generation results including video URI
     """
     try:
-        # TEMPORARY: Video generation disabled for testing
-        pass  # TEMPORARY MODE: Video generation API disabled
-        print(f"   Would have generated video with prompt: {request.prompt}")
+        print(f"🚀 Manual video generation request received")
+        print(f"📝 Prompt: {request.prompt}")
         
-        raise HTTPException(
-            status_code=503, 
-            detail="Video generation temporarily disabled for testing. Please try again later."
+        # Initialize services
+        from app.services.video_generation_service import VideoGenerationService
+        from app.services.aws_service import AWSService
+        from app.services.pinecone_service import PineconeService
+        
+        video_service = VideoGenerationService()
+        aws_service = AWSService()
+        pinecone_service = PineconeService()
+        
+        # Generate video
+        result = video_service.generate_video_complete(
+            prompt=request.prompt,
+            aspect_ratio=request.aspect_ratio,
+            number_of_videos=request.number_of_videos,
+            upload_to_s3=True,
+            aws_service=aws_service,
+            pinecone_service=pinecone_service
         )
         
         response = {
@@ -708,6 +761,13 @@ async def track_user_preference_interaction(request: UserInteractionRequest):
         )
         
         if result["success"]:
+            print(f"\n👤 USER INTERACTION TRACKED")
+            print(f"🆔 User: {request.user_id}")
+            print(f"🎬 Video: {request.video_id}")
+            print(f"⚡ Action: {request.action}")
+            print(f"🔢 Interactions since last update: {result.get('interactions_since_update', 'unknown')}")
+            print(f"🎯 Preference updated: {result.get('preference_updated', False)}")
+            
             # Display both queues after user interaction
             redis_service.display_next_reels(request.user_id, count=5)
             redis_service.display_video_generation_queue(request.user_id, count=5)

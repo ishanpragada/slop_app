@@ -57,6 +57,12 @@ class BackgroundVideoWorker:
             users_with_tasks = self._get_all_users_with_pending_tasks()
             print(f"📋 Found {len(users_with_tasks)} users with pending tasks")
             
+            # Reset any stuck tasks before processing
+            for user_id in users_with_tasks:
+                reset_count = self.queue_service.reset_stuck_tasks(user_id)
+                if reset_count > 0:
+                    print(f"🔄 Reset {reset_count} stuck tasks for user {user_id}")
+            
             while users_with_tasks:
                 # Process tasks for each user (up to concurrent limit)
                 for user_id in list(users_with_tasks):
@@ -76,10 +82,12 @@ class BackgroundVideoWorker:
                         if success:
                             total_processed += 1
                             self.stats["videos_generated"] += 1
-                            pass  # Completed video generation
+                            print(f"✅ Successfully completed video generation for user {user_id}")
                         else:
                             self.stats["errors"] += 1
-                            pass  # Failed video generation
+                            print(f"❌ Failed video generation for user {user_id}")
+                            # Mark task as failed so it doesn't get stuck in_progress
+                            self._mark_task_failed(user_id, task)
                         
                         self.stats["last_activity"] = datetime.now().isoformat()
                     else:
@@ -97,7 +105,8 @@ class BackgroundVideoWorker:
             return total_processed
             
         except Exception as e:
-            pass  # Error in process_all_pending_tasks
+            print(f"❌ Error in process_all_pending_tasks: {e}")
+            print(f"   Exception type: {type(e).__name__}")
             self.stats["errors"] += 1
             return total_processed
     
@@ -150,17 +159,58 @@ class BackgroundVideoWorker:
                 pass  # No prompt found in task
                 return False
             
-            pass  # TEMPORARY MODE: Video generation disabled
-            print(f"   Would have generated video for user {user_id}")
-            print(f"   Would have used prompt: {prompt}")
-            print(f"   Skipping actual video generation and marking task as completed")
+            print(f"🎬 Generating video for user {user_id}")
+            print(f"📝 Prompt: {prompt}")
             
-            # TEMPORARY: Skip actual video generation for testing
-            # Just mark the task as completed without generating video
-            return True
+            # Import video generation service here to avoid circular imports
+            from app.services.video_generation_service import VideoGenerationService
+            from app.services.aws_service import AWSService
+            from app.services.pinecone_service import PineconeService
+            
+            # Initialize services
+            video_service = VideoGenerationService()
+            aws_service = AWSService()
+            pinecone_service = PineconeService()
+            
+            # Generate video with S3 upload enabled
+            result = video_service.generate_video_complete(
+                prompt=prompt,
+                upload_to_s3=True,
+                aws_service=aws_service,
+                pinecone_service=pinecone_service
+            )
+            
+            if result.generation_complete and result.s3_url:
+                print(f"✅ Video generation completed successfully")
+                print(f"   🎬 Video ID: {result.video_id}")
+                print(f"   🔗 S3 URL: {result.s3_url}")
+                
+                # Save video metadata to PostgreSQL database
+                self._save_video_to_database(result.video_id, result.s3_url, prompt)
+                
+                # Add the generated video to user's feed
+                self._add_generated_video_to_feed(user_id, result.video_id, prompt)
+                
+                # Mark the task as completed and remove from generation queue
+                completion_success = self.queue_service.mark_generation_complete(
+                    user_id, task, result.video_id, result.s3_url
+                )
+                
+                if completion_success:
+                    print(f"✅ Marked generation task as completed for user {user_id}")
+                else:
+                    print(f"⚠️  Failed to mark task as completed for user {user_id}")
+                
+                return True
+            else:
+                print(f"❌ Video generation failed or incomplete")
+                return False
                 
         except Exception as e:
-            pass  # Error generating video for task
+            print(f"❌ Error generating video for task: {e}")
+            print(f"   Exception type: {type(e).__name__}")
+            print(f"   User: {user_id}")
+            print(f"   Prompt: {prompt}")
             return False
     
     def stop(self):
@@ -178,18 +228,94 @@ class BackgroundVideoWorker:
             prompt: Video prompt used for generation
         """
         try:
-            # For newly generated videos, give them a high score since they're personalized
-            # Use timestamp-based scoring to ensure newest videos appear first
-            feed_score = time.time()  # Current timestamp as score
+            # For newly generated videos, give them a high but reasonable score
+            # Generated videos are highly personalized, so give them similarity of ~0.9 + freshness boost
+            # This ensures they rank high but don't completely dominate the feed
+            base_personalization_score = 0.9  # High similarity since generated for this user
+            freshness_boost = 0.1  # Small boost for being newly generated
+            feed_score = base_personalization_score + freshness_boost
             
             success = self.redis_service.add_to_feed(user_id, video_id, feed_score)
             if success:
-                pass  # Added newly generated video to User Feed Queue
+                print(f"✅ Added newly generated video {video_id} to user feed (score: {feed_score})")
             else:
                 print(f"⚠️  Failed to add generated video {video_id} to user feed")
                 
         except Exception as e:
-            pass  # Error adding generated video to user feed
+            print(f"❌ Error adding generated video to user feed: {e}")
+            print(f"   Video ID: {video_id}")
+            print(f"   User ID: {user_id}")
+            print(f"   Score: {feed_score if 'feed_score' in locals() else 'N/A'}")
+    
+    def _save_video_to_database(self, video_id: str, s3_url: str, prompt: str) -> None:
+        """
+        Save generated video metadata to PostgreSQL database
+        
+        Args:
+            video_id: Generated video ID
+            s3_url: S3 URL of the video
+            prompt: Text prompt used for generation
+        """
+        try:
+            result = self.database_service.save_video_metadata(
+                video_id=video_id,
+                s3_url=s3_url,
+                prompt=prompt,
+                length_seconds=8  # Veo 3 Fast generates 8-second videos
+            )
+            
+            if result.get("success"):
+                print(f"✅ Saved video metadata to database: {video_id}")
+                print(f"   📝 Prompt: {prompt}")
+                print(f"   🔗 S3 URL: {s3_url}")
+            else:
+                print(f"❌ Failed to save video metadata to database: {result.get('message', 'unknown error')}")
+                
+        except Exception as e:
+            print(f"❌ Error saving video to database: {e}")
+            print(f"   Video ID: {video_id}")
+            print(f"   Prompt: {prompt}")
+    
+    def _mark_task_failed(self, user_id: str, task: Dict[str, Any]) -> None:
+        """
+        Mark a task as failed to prevent it from being stuck in_progress
+        
+        Args:
+            user_id: User identifier
+            task: The failed task
+        """
+        try:
+            queue_key = f"video_queue:{user_id}"
+            client = self.redis_service.get_client()
+            
+            # Update task status to failed
+            task["status"] = "failed"
+            task["failed_at"] = datetime.now().isoformat()
+            task["error"] = "Video generation failed"
+            
+            # Find and replace the task in queue
+            queue_items = client.zrevrange(queue_key, 0, -1, withscores=True)
+            
+            for item_json, score in queue_items:
+                try:
+                    item = json.loads(item_json)
+                    
+                    # Match by prompt and user_id
+                    if (item.get("prompt") == task.get("prompt") and 
+                        item.get("user_id") == task.get("user_id")):
+                        
+                        # Remove old task and add updated one
+                        client.zrem(queue_key, item_json)
+                        client.zadd(queue_key, {json.dumps(task): score})
+                        
+                        print(f"🚨 Marked task as failed for user {user_id}")
+                        return
+                        
+                except json.JSONDecodeError:
+                    continue
+                    
+        except Exception as e:
+            print(f"❌ Error marking task as failed: {e}")
 
 def main():
     """Main function for running the background worker continuously"""
