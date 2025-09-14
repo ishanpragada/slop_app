@@ -498,7 +498,7 @@ export const VideoFeedWithAPI: React.FC<VideoFeedProps> = ({
         ref={flatListRef}
         data={videos}
         renderItem={renderVideoItem}
-        keyExtractor={(item) => item.video_id}
+        keyExtractor={(item, index) => `${item.video_id}_${index}`}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}

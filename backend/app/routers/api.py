@@ -94,6 +94,11 @@ async def get_video_feed(
         )
         
         response = feed_service.get_feed(request)
+        
+        # Display both queues after feed fetch - show from current cursor position
+        redis_service.display_next_reels(user_id, count=5, start_position=cursor)
+        redis_service.display_video_generation_queue(user_id, count=5)
+        
         return response
         
     except Exception as e:
@@ -187,6 +192,11 @@ async def get_infinite_video_feed(
         )
         
         response = infinite_feed_service.get_feed(request)
+        
+        # Display both queues after infinite feed fetch - show from current cursor position
+        redis_service.display_next_reels(user_id, count=5, start_position=cursor)
+        redis_service.display_video_generation_queue(user_id, count=5)
+        
         return response
         
     except Exception as e:
@@ -410,19 +420,13 @@ async def generate_ai_video_complete(
         Complete generation results including video URI
     """
     try:
-        # Note: Veo 3 Fast has a fixed 8-second duration - custom duration will be ignored
-        if request.duration_seconds != 8:
-            print(f"⚠️  Note: Veo 3 Fast uses a fixed 8-second duration. Requested {request.duration_seconds}s will be ignored.")
+        # TEMPORARY: Video generation disabled for testing
+        pass  # TEMPORARY MODE: Video generation API disabled
+        print(f"   Would have generated video with prompt: {request.prompt}")
         
-        # Generate video using the complete workflow
-        result = video_gen_service.generate_video_complete(
-            prompt=request.prompt,
-            aspect_ratio=request.aspect_ratio,
-            duration_seconds=request.duration_seconds,
-            number_of_videos=request.number_of_videos,
-            upload_to_s3=True,
-            aws_service=aws_service,
-            pinecone_service=pinecone_service
+        raise HTTPException(
+            status_code=503, 
+            detail="Video generation temporarily disabled for testing. Please try again later."
         )
         
         response = {
@@ -468,10 +472,10 @@ async def generate_ai_video_complete(
                     "postgres_video_id": result.video_id
                 })
                 
-                print(f"✅ Video metadata saved to PostgreSQL: {result.video_id}")
+                pass  # Video metadata saved to PostgreSQL
                 
             except Exception as postgres_error:
-                print(f"❌ Failed to save to PostgreSQL: {postgres_error}")
+                pass  # Failed to save to PostgreSQL
                 response.update({
                     "saved_to_postgres": False,
                     "postgres_error": str(postgres_error)
@@ -704,6 +708,10 @@ async def track_user_preference_interaction(request: UserInteractionRequest):
         )
         
         if result["success"]:
+            # Display both queues after user interaction
+            redis_service.display_next_reels(request.user_id, count=5)
+            redis_service.display_video_generation_queue(request.user_id, count=5)
+            
             return {
                 "success": True,
                 "message": result["message"],

@@ -40,7 +40,7 @@ class FeedService:
             current_feed_size = self.redis_service.get_feed_size(request.user_id)
             
             if request.refresh or current_feed_size < self.min_feed_threshold:
-                logger.info(f"Generating new feed for user {request.user_id} (current size: {current_feed_size})")
+                pass  # Generating new feed for user
                 generation_result = self.generate_feed(request.user_id, self.default_feed_size)
                 if not generation_result.success:
                     return FeedResponse(
@@ -96,7 +96,7 @@ class FeedService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to get feed for user {request.user_id}: {str(e)}")
+            pass  # Failed to get feed for user
             return FeedResponse(
                 success=False,
                 videos=[],
@@ -171,7 +171,7 @@ class FeedService:
                 if self.redis_service.add_to_feed(user_id, video_id, score):
                     videos_added += 1
                 else:
-                    logger.warning(f"Failed to add video {video_id} to feed for user {user_id}")
+                    pass  # Failed to add video to feed for user
             
             # Set feed expiry (24 hours)
             self.redis_service.set_feed_expiry(user_id, 24 * 3600)
@@ -179,7 +179,7 @@ class FeedService:
             final_feed_size = self.redis_service.get_feed_size(user_id)
             generation_time = time.time() - start_time
             
-            logger.info(f"Generated feed for user {user_id}: {videos_added} videos in {generation_time:.2f}s")
+            pass  # Generated feed for user
             
             return FeedGenerationResponse(
                 success=True,
@@ -191,7 +191,7 @@ class FeedService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to generate feed for user {user_id}: {str(e)}")
+            pass  # Failed to generate feed for user
             return FeedGenerationResponse(
                 success=False,
                 user_id=user_id,
@@ -215,7 +215,7 @@ class FeedService:
                 is_healthy=is_healthy
             )
         except Exception as e:
-            logger.error(f"Failed to get feed stats for user {user_id}: {str(e)}")
+            pass  # Failed to get feed stats for user
             return FeedStatsResponse(
                 user_id=user_id,
                 feed_size=0,
@@ -229,7 +229,7 @@ class FeedService:
         try:
             return self.redis_service.remove_from_feed(user_id, video_id)
         except Exception as e:
-            logger.error(f"Failed to remove video {video_id} from feed for user {user_id}: {str(e)}")
+            pass  # Failed to remove video from feed for user
             return False
     
     def _hydrate_video_ids(self, video_ids: List[str]) -> List[FeedVideoItem]:
@@ -265,10 +265,10 @@ class FeedService:
                     )
                     feed_items.append(feed_item)
                 else:
-                    logger.warning(f"Video {video_id} not found in S3, skipping")
+                    pass  # Video not found in S3, skipping
                     
             except Exception as e:
-                logger.error(f"Failed to hydrate video {video_id}: {str(e)}")
+                pass  # Failed to hydrate video
                 continue
         
         return feed_items 

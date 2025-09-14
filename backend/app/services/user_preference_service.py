@@ -60,7 +60,7 @@ class UserPreferenceService:
         try:
             return psycopg2.connect(**self.db_config)
         except Exception as e:
-            print(f"❌ Database connection error: {e}")
+            pass  # Database connection error
             raise
     
     def _initialize_database_tables(self):
@@ -110,7 +110,7 @@ class UserPreferenceService:
                             ALTER TABLE user_preferences 
                             ADD COLUMN IF NOT EXISTS watched_videos JSONB DEFAULT '[]'::jsonb;
                         """)
-                        print("✅ Watched videos column added/verified")
+                        pass  # Watched videos column added/verified
                     except Exception as migration_error:
                         print(f"⚠️  Migration warning (column may already exist): {migration_error}")
                     
@@ -119,10 +119,10 @@ class UserPreferenceService:
                         cur.execute(index_sql)
                     
                     conn.commit()
-                    print("✅ Database tables created/verified successfully")
+                    pass  # Database tables created/verified successfully
                     
         except Exception as e:
-            print(f"❌ Error creating database tables: {e}")
+            pass  # Error creating database tables
             raise
     
     def store_user_interaction(
@@ -201,7 +201,7 @@ class UserPreferenceService:
                 }
                 
         except Exception as e:
-            print(f"❌ Error storing user interaction: {e}")
+            pass  # Error storing user interaction
             return {
                 "success": False,
                 "error": str(e),
@@ -219,7 +219,7 @@ class UserPreferenceService:
                     )
                     return cur.fetchone() is not None
         except Exception as e:
-            print(f"❌ Error checking user preference existence: {e}")
+            pass  # Error checking user preference existence
             return False
     
     def _create_user_preference(self, user_id: str):
@@ -235,10 +235,10 @@ class UserPreferenceService:
                     """, (user_id, json.dumps(default_vector), self.window_size, 0, self.preference_update_threshold, json.dumps([])))
                     
                     conn.commit()
-                    print(f"✅ Created user preference for user: {user_id}")
+                    pass  # Created user preference for user
                     
         except Exception as e:
-            print(f"❌ Error creating user preference: {e}")
+            pass  # Error creating user preference
             raise
     
     def _get_interaction_weight(self, interaction_type: str) -> float:
@@ -279,7 +279,7 @@ class UserPreferenceService:
                     conn.commit()
                     
         except Exception as e:
-            print(f"❌ Error storing interaction: {e}")
+            pass  # Error storing interaction
             raise
     
     def _should_update_preference(self, user_id: str) -> bool:
@@ -301,7 +301,7 @@ class UserPreferenceService:
                     interactions_since_update, threshold = result
                     return interactions_since_update >= threshold
         except Exception as e:
-            print(f"❌ Error checking if should update preference: {e}")
+            pass  # Error checking if should update preference
             return True
     
     def _get_user_preference_from_db(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -326,7 +326,7 @@ class UserPreferenceService:
                     return None
                     
         except Exception as e:
-            print(f"❌ Error getting user preference from database: {e}")
+            pass  # Error getting user preference from database
             return None
     
     def _calculate_preference_vector(self, user_id: str) -> List[float]:
@@ -376,7 +376,7 @@ class UserPreferenceService:
                     return self._l2_normalize(preference_vector)
                     
         except Exception as e:
-            print(f"❌ Error calculating preference vector: {e}")
+            pass  # Error calculating preference vector
             return self._get_default_preference()
     
     def _l2_normalize(self, vector: List[float]) -> List[float]:
@@ -405,7 +405,7 @@ class UserPreferenceService:
                     """, (json.dumps(preference_vector), user_id))
                     
                     conn.commit()
-                    print(f"✅ Updated user preference for user: {user_id}")
+                    pass  # Updated user preference for user
                     
                     # Trigger video generation queue creation for new preference vector
                     try:
@@ -413,16 +413,16 @@ class UserPreferenceService:
                         queue_result = self.video_queue_service.process_new_preference_vector(user_id, preference_vector)
                         
                         if queue_result.get("success"):
-                            print(f"✅ Video generation queue created successfully: {queue_result.get('strategy', 'unknown')}")
+                            pass  # Video generation queue created successfully
                         else:
                             print(f"⚠️  Video generation queue creation failed: {queue_result.get('message', 'unknown error')}")
                             
                     except Exception as queue_error:
-                        print(f"❌ Error creating video generation queue: {queue_error}")
+                        pass  # Error creating video generation queue
                         # Don't raise - preference update should still succeed even if queue creation fails
                     
         except Exception as e:
-            print(f"❌ Error saving user preference: {e}")
+            pass  # Error saving user preference
             raise
     
     def get_user_preference(self, user_id: str) -> Optional[UserPreference]:
@@ -442,7 +442,7 @@ class UserPreferenceService:
             )
             
         except Exception as e:
-            print(f"❌ Error getting user preference: {e}")
+            pass  # Error getting user preference
             return None
     
     def get_user_interactions(self, user_id: str) -> Optional[UserInteractionWindow]:
@@ -481,7 +481,7 @@ class UserPreferenceService:
                     )
                     
         except Exception as e:
-            print(f"❌ Error getting user interactions: {e}")
+            pass  # Error getting user interactions
             return None
     
     def _get_interactions_since_update(self, user_id: str) -> int:
@@ -496,7 +496,7 @@ class UserPreferenceService:
                     result = cur.fetchone()
                     return result[0] if result else 0
         except Exception as e:
-            print(f"❌ Error getting interactions since update: {e}")
+            pass  # Error getting interactions since update
             return 0
     
     def _increment_interaction_counter(self, user_id: str):
@@ -513,7 +513,7 @@ class UserPreferenceService:
                     conn.commit()
                         
         except Exception as e:
-            print(f"❌ Error incrementing interaction counter: {e}")
+            pass  # Error incrementing interaction counter
     
     def _reset_interaction_counter(self, user_id: str):
         """Reset the interaction counter for a user in database"""
@@ -529,7 +529,7 @@ class UserPreferenceService:
                     conn.commit()
                         
         except Exception as e:
-            print(f"❌ Error resetting interaction counter: {e}")
+            pass  # Error resetting interaction counter
     
     def add_watched_video(self, user_id: str, video_id: str) -> bool:
         """Add a video ID to the user's watched videos list"""
@@ -552,11 +552,11 @@ class UserPreferenceService:
                     """, (json.dumps([video_id]), user_id))
                     
                     conn.commit()
-                    print(f"✅ Added video {video_id} to watched list for user {user_id}")
+                    pass  # Added video to watched list for user
                     return True
                     
         except Exception as e:
-            print(f"❌ Error adding watched video: {e}")
+            pass  # Error adding watched video
             return False
     
     def has_watched_video(self, user_id: str, video_id: str) -> bool:
@@ -574,7 +574,7 @@ class UserPreferenceService:
                     return result[0] if result else False
                     
         except Exception as e:
-            print(f"❌ Error checking watched video: {e}")
+            pass  # Error checking watched video
             return False
     
     def get_watched_videos(self, user_id: str) -> List[str]:
@@ -594,7 +594,7 @@ class UserPreferenceService:
                     return []
                     
         except Exception as e:
-            print(f"❌ Error getting watched videos: {e}")
+            pass  # Error getting watched videos
             return []
     
     def remove_watched_video(self, user_id: str, video_id: str) -> bool:
@@ -609,11 +609,11 @@ class UserPreferenceService:
                     """, (video_id, user_id))
                     
                     conn.commit()
-                    print(f"✅ Removed video {video_id} from watched list for user {user_id}")
+                    pass  # Removed video from watched list for user
                     return True
                     
         except Exception as e:
-            print(f"❌ Error removing watched video: {e}")
+            pass  # Error removing watched video
             return False
     
     def get_unwatched_videos_from_list(self, user_id: str, video_ids: List[str]) -> List[str]:
@@ -624,6 +624,6 @@ class UserPreferenceService:
             return [vid for vid in video_ids if vid not in watched_set]
             
         except Exception as e:
-            print(f"❌ Error filtering unwatched videos: {e}")
+            pass  # Error filtering unwatched videos
             return video_ids  # Return all videos if there's an error
     

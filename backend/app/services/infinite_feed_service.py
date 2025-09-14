@@ -41,7 +41,7 @@ class InfiniteFeedService:
             current_feed_size = self.redis_service.get_feed_size(request.user_id)
             
             if request.refresh or current_feed_size == 0:
-                logger.info(f"Initializing infinite feed for user {request.user_id}")
+                pass  # Initializing infinite feed for user
                 generation_result = self._initialize_infinite_feed(request.user_id)
                 if not generation_result.success:
                     return FeedResponse(
@@ -58,13 +58,13 @@ class InfiniteFeedService:
             
             # Check if we need to refill the queue (infinite scrolling logic)
             if current_feed_size < self.refill_threshold:
-                logger.info(f"Refilling infinite feed for user {request.user_id} (current size: {current_feed_size})")
+                pass  # Refilling infinite feed for user
                 self._refill_infinite_feed(request.user_id)
                 current_feed_size = self.redis_service.get_feed_size(request.user_id)
             
             # Handle cursor that exceeds current queue size - refill and adjust cursor
             if request.cursor >= current_feed_size:
-                logger.info(f"Cursor {request.cursor} exceeds feed size {current_feed_size}, refilling and adjusting")
+                pass  # Cursor exceeds feed size, refilling and adjusting
                 # Refill the queue
                 self._refill_infinite_feed(request.user_id)
                 current_feed_size = self.redis_service.get_feed_size(request.user_id)
@@ -88,7 +88,7 @@ class InfiniteFeedService:
             
             if not video_ids:
                 # This should never happen with infinite feed, but just in case
-                logger.warning(f"No videos found for user {request.user_id}, forcing refill")
+                pass  # No videos found for user, forcing refill
                 self._refill_infinite_feed(request.user_id)
                 video_ids = self.redis_service.get_feed_videos(
                     user_id=request.user_id,
@@ -118,7 +118,7 @@ class InfiniteFeedService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to get infinite feed for user {request.user_id}: {str(e)}")
+            pass  # Failed to get infinite feed for user
             return FeedResponse(
                 success=False,
                 videos=[],
@@ -168,7 +168,7 @@ class InfiniteFeedService:
             final_feed_size = self.redis_service.get_feed_size(user_id)
             generation_time = time.time() - start_time
             
-            logger.info(f"Initialized infinite feed for user {user_id}: {videos_added} videos in {generation_time:.2f}s")
+            pass  # Initialized infinite feed for user
             
             return FeedGenerationResponse(
                 success=True,
@@ -180,7 +180,7 @@ class InfiniteFeedService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to initialize infinite feed for user {user_id}: {str(e)}")
+            pass  # Failed to initialize infinite feed for user
             return FeedGenerationResponse(
                 success=False,
                 user_id=user_id,
@@ -205,17 +205,17 @@ class InfiniteFeedService:
             all_videos = self.aws_service.list_videos(max_keys=1000)
             
             if not all_videos:
-                logger.warning(f"No videos available for refill for user {user_id}")
+                pass  # No videos available for refill for user
                 return False
             
             # Add more videos to the queue
             videos_added = self._populate_feed_queue(user_id, all_videos, self.videos_per_refill, append=True)
             
-            logger.info(f"Refilled infinite feed for user {user_id}: added {videos_added} videos")
+            pass  # Refilled infinite feed for user
             return videos_added > 0
             
         except Exception as e:
-            logger.error(f"Failed to refill infinite feed for user {user_id}: {str(e)}")
+            pass  # Failed to refill infinite feed for user
             return False
     
     def _populate_feed_queue(self, user_id: str, available_videos: List[VideoListItem], 
@@ -269,7 +269,7 @@ class InfiniteFeedService:
             if self.redis_service.add_to_feed(user_id, unique_video_id, score):
                 videos_added += 1
             else:
-                logger.warning(f"Failed to add video {unique_video_id} to infinite feed for user {user_id}")
+                pass  # Failed to add video to infinite feed for user
         
         return videos_added
     
@@ -319,10 +319,10 @@ class InfiniteFeedService:
                     )
                     feed_items.append(feed_item)
                 else:
-                    logger.warning(f"Video {video_id} not found in S3, skipping")
+                    pass  # Video not found in S3, skipping
                     
             except Exception as e:
-                logger.error(f"Failed to hydrate video {unique_video_id}: {str(e)}")
+                pass  # Failed to hydrate video
                 continue
         
         return feed_items
@@ -341,7 +341,7 @@ class InfiniteFeedService:
                 is_healthy=is_healthy
             )
         except Exception as e:
-            logger.error(f"Failed to get infinite feed stats for user {user_id}: {str(e)}")
+            pass  # Failed to get infinite feed stats for user
             return FeedStatsResponse(
                 user_id=user_id,
                 feed_size=0,

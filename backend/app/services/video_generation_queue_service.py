@@ -16,7 +16,7 @@ class VideoGenerationQueueService:
         load_dotenv()
         
         # Configuration
-        self.similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", 0.7))  # Reasonable cosine similarity threshold
+        self.similarity_threshold = float(os.getenv("SIMILARITY_THRESHOLD", 0.1))  # Reasonable cosine similarity threshold
         self.min_similar_prompts = 3  # Minimum number of similar prompts required
         
         # Initialize services
@@ -37,22 +37,20 @@ class VideoGenerationQueueService:
             Dictionary with processing results
         """
         try:
-            print(f"🔄 Processing new preference vector for user: {user_id}")
+            pass  # Processing new preference vector
             
             # Step 1: Find similar prompt embeddings
             similar_prompts, above_threshold_count = self._find_similar_prompt_embeddings(preference_vector)
             
-            # Step 2: Check if we have enough prompts above threshold (not just k-nearest neighbors)
-            if above_threshold_count >= self.min_similar_prompts:
-                print(f"✅ Found {above_threshold_count} similar prompts above threshold (>= {self.min_similar_prompts})")
-                return self._process_existing_similar_prompts(user_id, similar_prompts)
-            else:
-                print(f"⚠️  Only found {above_threshold_count} prompts above threshold (< {self.min_similar_prompts})")
-                print(f"🎯 Using top 1 k-nearest neighbor for LLM prompt generation")
-                return self._generate_new_similar_prompts(user_id, similar_prompts, preference_vector)
+            # TEMPORARY: Force processing existing videos only, no generation
+            pass  # TEMPORARY MODE: Video generation disabled
+            pass  # Found similar prompts, using existing videos
+            
+            # Force to process existing videos regardless of threshold
+            return self._process_existing_similar_prompts_force_three(user_id, similar_prompts)
                 
         except Exception as e:
-            print(f"❌ Error processing preference vector: {e}")
+            pass  # Error processing preference vector
             return {
                 "success": False,
                 "error": str(e),
@@ -81,7 +79,7 @@ class VideoGenerationQueueService:
                 namespace="ns1",
                 query={
                     "inputs": {"text": "cinematic video content"},  # Generic query to get candidates
-                    "top_k": 50  # Get more candidates for filtering
+                    "top_k": 100  # Get more candidates to ensure we have at least 3
                 },
                 fields=["prompt"]
                 # Note: include_values is not supported in this version
@@ -122,22 +120,16 @@ class VideoGenerationQueueService:
             
             above_threshold_count = len(above_threshold)
             
-            if above_threshold_count >= self.min_similar_prompts:
-                # Return all prompts above threshold (should be 3+)
-                similar_prompts = above_threshold
-                print(f"📊 Found {above_threshold_count} prompts above similarity threshold {self.similarity_threshold}")
-                print(f"    Using all {len(similar_prompts)} prompts above threshold")
-            else:
-                # Return top 1 k-nearest neighbor for LLM context
-                similar_prompts = all_results[:1]
-                print(f"📊 Found {above_threshold_count} prompts above threshold, using top 1 k-nearest neighbor instead")
-                scores = [f"{p['similarity_score']:.3f}" for p in similar_prompts]
-                print(f"    K-nearest neighbor score: {scores[0] if scores else 'none'}")
+            # TEMPORARY: Always return all results for forced selection method
+            pass  # Found prompts, returning all results for forced selection
+            
+            # Return all results (sorted by similarity) for forced selection
+            similar_prompts = all_results
             
             return similar_prompts, above_threshold_count
             
         except Exception as e:
-            print(f"❌ Error finding similar prompt embeddings: {e}")
+            pass  # Error finding similar prompt embeddings
             return [], 0
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
@@ -165,7 +157,7 @@ class VideoGenerationQueueService:
             return dot_product / (magnitude1 * magnitude2)
             
         except Exception as e:
-            print(f"❌ Error calculating cosine similarity: {e}")
+            pass  # Error calculating cosine similarity
             return 0.0
     
     def _process_existing_similar_prompts(self, user_id: str, similar_prompts: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -201,12 +193,12 @@ class VideoGenerationQueueService:
                         "s3_url": video_info.get("s3_url"),
                         "created_at": video_info.get("created_at")
                     })
-                    print(f"✅ Verified video {video_id} exists in database")
+                    pass  # Verified video exists in database
                 else:
                     print(f"⚠️  Video {video_id} not found in database")
             
             if not valid_videos:
-                print("❌ No valid videos found for similar prompts")
+                pass  # No valid videos found for similar prompts
                 return {
                     "success": False,
                     "message": "No valid videos found for similar prompts"
@@ -229,11 +221,96 @@ class VideoGenerationQueueService:
             }
             
         except Exception as e:
-            print(f"❌ Error processing existing similar prompts: {e}")
+            pass  # Error processing existing similar prompts
             return {
                 "success": False,
                 "error": str(e),
                 "message": "Failed to process existing similar prompts"
+            }
+    
+    def _process_existing_similar_prompts_force_three(self, user_id: str, similar_prompts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        TEMPORARY: Process existing similar prompts by forcing to use exactly 3 closest videos
+        This method ignores similarity thresholds and always picks the 3 closest videos available
+        
+        Args:
+            user_id: User identifier
+            similar_prompts: List of similar prompts with video IDs (sorted by similarity)
+            
+        Returns:
+            Processing results
+        """
+        try:
+            # Take the top 3 closest videos regardless of distance/similarity
+            selected_prompts = similar_prompts[:3] if len(similar_prompts) >= 3 else similar_prompts
+            
+            print(f"🎯 FORCED SELECTION: Using top {len(selected_prompts)} closest existing videos")
+            
+            # Get video IDs and retrieve from database
+            valid_videos = []
+            
+            for i, prompt_data in enumerate(selected_prompts):
+                video_id = prompt_data["video_id"]
+                prompt_text = prompt_data["prompt"]
+                similarity_score = prompt_data["similarity_score"]
+                
+                # Verify video exists in PostgreSQL
+                video_info = self.database_service.get_video_by_id(video_id)
+                if video_info:
+                    valid_videos.append({
+                        "video_id": video_id,
+                        "prompt": prompt_text,
+                        "similarity_score": similarity_score,
+                        "s3_url": video_info.get("s3_url"),
+                        "created_at": video_info.get("created_at")
+                    })
+                    pass  # Selected video for queue
+                else:
+                    print(f"⚠️  Video {video_id} not found in database, skipping")
+            
+            if not valid_videos:
+                pass  # No valid videos found in database
+                return {
+                    "success": False,
+                    "message": "No valid videos found in database"
+                }
+            
+            pass  # Final selection of videos for queue
+            
+            # TEMPORARY: Clear some space at the top of the feed for immediate visibility
+            self._clear_feed_space_for_new_videos(user_id, len(valid_videos))
+            
+            # Log all prompts being added to queue
+            pass  # Adding prompts to queue
+            for i, video in enumerate(valid_videos, 1):
+                print(f"   {i}. Video ID: {video['video_id']}")
+                print(f"      Prompt: '{video['prompt']}'")
+                print(f"      Similarity Score: {video['similarity_score']:.3f}")
+                print(f"      S3 URL: {video.get('s3_url', 'N/A')}")
+                print()
+            
+            # Add videos to Redis queue
+            queue_result = self._add_videos_to_queue(user_id, valid_videos)
+            
+            # Add videos to User Feed Queue for immediate consumption
+            self._add_videos_to_user_feed(user_id, valid_videos)
+            
+            return {
+                "success": True,
+                "strategy": "forced_existing_videos",
+                "videos_found": len(valid_videos),
+                "videos_queued": queue_result.get("videos_added", 0),
+                "threshold_bypassed": True,
+                "queue_result": queue_result,
+                "videos": valid_videos
+            }
+            
+        except Exception as e:
+            pass  # Error processing forced existing similar prompts
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Failed to process forced existing similar prompts"
             }
     
     def _generate_new_similar_prompts(self, user_id: str, existing_prompts: List[Dict[str, Any]], preference_vector: List[float]) -> Dict[str, Any]:
@@ -258,7 +335,7 @@ class VideoGenerationQueueService:
             new_prompts = self._generate_prompts_with_llm(existing_prompt_texts)
             
             if not new_prompts:
-                print("❌ Failed to generate new prompts")
+                pass  # Failed to generate new prompts
                 return {
                     "success": False,
                     "message": "Failed to generate new prompts with LLM"
@@ -278,7 +355,7 @@ class VideoGenerationQueueService:
             }
             
         except Exception as e:
-            print(f"❌ Error generating new similar prompts: {e}")
+            pass  # Error generating new similar prompts
             return {
                 "success": False,
                 "error": str(e),
@@ -354,17 +431,17 @@ class VideoGenerationQueueService:
                 # Ensure we have exactly 1 prompt
                 new_prompts = new_prompts[:1]
                 
-                print(f"✅ Generated {len(new_prompts)} new prompt using LLM")
+                pass  # Generated new prompts using LLM
                 for i, prompt in enumerate(new_prompts, 1):
                     print(f"   {i}. {prompt}")
                 
                 return new_prompts
             else:
-                print("❌ LLM returned empty response")
+                pass  # LLM returned empty response
                 return []
                 
         except Exception as e:
-            print(f"❌ Error generating prompts with LLM: {e}")
+            pass  # Error generating prompts with LLM
             return []
     
     def _add_videos_to_queue(self, user_id: str, videos: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -402,7 +479,9 @@ class VideoGenerationQueueService:
                 
                 if success:
                     videos_added += 1
-                    print(f"✅ Added video {video['video_id']} to queue with score {score:.3f}")
+                    pass  # Added video to queue
+                    print(f"   📝 Prompt: '{video['prompt']}'")
+                    print(f"   🔗 S3 URL: {video.get('s3_url', 'N/A')}")
             
             # Set expiry for the queue (24 hours)
             self.redis_service.get_client().expire(queue_key, 24 * 3600)
@@ -415,7 +494,7 @@ class VideoGenerationQueueService:
             }
             
         except Exception as e:
-            print(f"❌ Error adding videos to queue: {e}")
+            pass  # Error adding videos to queue
             return {
                 "success": False,
                 "error": str(e),
@@ -458,7 +537,7 @@ class VideoGenerationQueueService:
                 
                 if success:
                     prompts_added += 1
-                    print(f"✅ Added prompt to generation queue with priority {score}: {prompt[:50]}...")
+                    pass  # Added prompt to generation queue
             
             # Set expiry for the queue (24 hours)
             self.redis_service.get_client().expire(queue_key, 24 * 3600)
@@ -471,7 +550,7 @@ class VideoGenerationQueueService:
             }
             
         except Exception as e:
-            print(f"❌ Error adding prompts to generation queue: {e}")
+            pass  # Error adding prompts to generation queue
             return {
                 "success": False,
                 "error": str(e),
@@ -527,7 +606,7 @@ class VideoGenerationQueueService:
             }
             
         except Exception as e:
-            print(f"❌ Error getting queue status: {e}")
+            pass  # Error getting queue status
             return {
                 "success": False,
                 "error": str(e),
@@ -573,7 +652,7 @@ class VideoGenerationQueueService:
             return None
             
         except Exception as e:
-            print(f"❌ Error getting next generation task: {e}")
+            pass  # Error getting next generation task
             return None
     
     def mark_generation_complete(self, user_id: str, task: Dict[str, Any], video_id: str, s3_url: str) -> bool:
@@ -615,7 +694,7 @@ class VideoGenerationQueueService:
                         client.zrem(queue_key, item_json)
                         client.zadd(queue_key, {json.dumps(task): score})
                         
-                        print(f"✅ Marked generation task as complete: {video_id}")
+                        pass  # Marked generation task as complete
                         return True
                         
                 except json.JSONDecodeError:
@@ -624,7 +703,7 @@ class VideoGenerationQueueService:
             return False
             
         except Exception as e:
-            print(f"❌ Error marking generation complete: {e}")
+            pass  # Error marking generation complete
             return False
     
     def _add_videos_to_user_feed(self, user_id: str, videos: List[Dict[str, Any]]) -> None:
@@ -643,18 +722,57 @@ class VideoGenerationQueueService:
                 similarity_score = video.get("similarity_score", 0.0)
                 
                 if video_id:
-                    # Use similarity score as feed score (higher similarity = higher priority)
-                    # Scale from 0-1 to 0-100 for better Redis sorted set handling
-                    feed_score = similarity_score * 100
+                    # TEMPORARY: Use high timestamp-based scores to ensure these videos appear FIRST
+                    # This will place them at the front of the feed for immediate visibility
+                    import time
+                    base_timestamp = time.time() * 1000  # Current timestamp in milliseconds
+                    feed_score = base_timestamp + (similarity_score * 100)  # Add similarity as bonus
+                    
+                    pass  # High priority feed score calculated
                     
                     success = self.redis_service.add_to_feed(user_id, video_id, feed_score)
                     if success:
                         videos_added += 1
-                        print(f"✅ Added video {video_id} to user feed (score: {feed_score:.2f})")
+                        pass  # Added video to user feed
                     else:
-                        print(f"⚠️  Failed to add video {video_id} to user feed")
+                        pass  # Failed to add video to user feed
             
-            print(f"📺 Added {videos_added}/{len(videos)} videos to User Feed Queue for {user_id}")
+            pass  # Added videos to User Feed Queue
             
         except Exception as e:
-            print(f"❌ Error adding videos to user feed: {e}")
+            pass  # Error adding videos to user feed
+    
+    def _clear_feed_space_for_new_videos(self, user_id: str, num_new_videos: int) -> None:
+        """
+        TEMPORARY: Clear some space at the top of the feed to ensure new videos are immediately visible
+        
+        Args:
+            user_id: User identifier
+            num_new_videos: Number of new videos that will be added
+        """
+        try:
+            client = self.redis_service.get_client()
+            feed_key = f"user:feed:{user_id}"
+            
+            # Get current feed size
+            current_size = client.zcard(feed_key)
+            pass  # Current feed size noted
+            
+            if current_size > 50:  # Only clear if feed is getting long
+                # Remove some older/lower-scored videos to make room
+                # Remove the bottom 25% of videos to keep feed manageable
+                videos_to_remove = max(10, current_size // 4)
+                
+                pass  # Removing older videos to make room
+                removed = client.zremrangebyrank(feed_key, 0, videos_to_remove - 1)
+                pass  # Removed older videos from feed
+                
+                # Update feed size
+                new_size = client.zcard(feed_key)
+                pass  # Feed size after cleanup
+            else:
+                pass  # Feed size is manageable, no cleanup needed
+                
+        except Exception as e:
+            pass  # Error clearing feed space
+            # Don't raise - this is just optimization, not critical
