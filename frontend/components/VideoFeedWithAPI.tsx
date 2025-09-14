@@ -115,6 +115,8 @@ const VideoItem: React.FC<VideoItemProps> = ({
   // Use the video interaction hook
   const {
     isLiked,
+    isLikeLoading,
+    likeError,
     watchTime,
     hasTrackedView,
     hasTrackedSkip,
@@ -218,13 +220,24 @@ const VideoItem: React.FC<VideoItemProps> = ({
       {/* Right Side Interaction Buttons */}
       <View style={styles.rightSidebar}>
         {/* Like Button */}
-        <TouchableOpacity style={styles.actionButton} onPress={handleLikePress}>
-          <Heart 
-            size={28} 
-            color={isLiked ? "#FF2D55" : "#FFFFFF"} 
-            strokeWidth={2} 
-            fill={isLiked ? "#FF2D55" : "none"}
-          />
+        <TouchableOpacity 
+          style={[
+            styles.actionButton, 
+            isLikeLoading && styles.actionButtonLoading
+          ]} 
+          onPress={handleLikePress}
+          disabled={isLikeLoading}
+        >
+          {isLikeLoading ? (
+            <ActivityIndicator size="small" color="#FF2D55" />
+          ) : (
+            <Heart 
+              size={28} 
+              color={isLiked ? "#FF2D55" : "#FFFFFF"} 
+              strokeWidth={2} 
+              fill={isLiked ? "#FF2D55" : "none"}
+            />
+          )}
         </TouchableOpacity>
 
         {/* Comment Button */}
@@ -252,6 +265,13 @@ const VideoItem: React.FC<VideoItemProps> = ({
         </TouchableOpacity>
       </View>
 
+      {/* Like Error Message */}
+      {likeError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorText}>{likeError}</Text>
+        </View>
+      )}
+
       {/* Debug Info Overlay - only show in development */}
       {__DEV__ && (
         <View style={styles.debugOverlay}>
@@ -260,7 +280,7 @@ const VideoItem: React.FC<VideoItemProps> = ({
             {hasTrackedView ? '✅ View' : hasTrackedSkip ? '⏭️ Skip' : '⏳ Watching...'}
           </Text>
           <Text style={styles.debugText}>
-            {isLiked ? '❤️ Liked' : '🤍 Not liked'}
+            {isLiked ? '❤️ Liked' : '🤍 Not liked'} {isLikeLoading && '🔄'}
           </Text>
         </View>
       )}
@@ -572,6 +592,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backdropFilter: 'blur(10px)',
   },
+  actionButtonLoading: {
+    backgroundColor: 'rgba(255, 45, 85, 0.2)', // Slightly red background when loading
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -620,6 +643,22 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
+  },
+  errorOverlay: {
+    position: 'absolute',
+    top: 50,
+    left: 15,
+    right: 15,
+    backgroundColor: 'rgba(255, 45, 85, 0.9)',
+    padding: 12,
+    borderRadius: 8,
+    zIndex: 20,
+  },
+  errorText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   debugOverlay: {
     position: 'absolute',

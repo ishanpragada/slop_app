@@ -119,7 +119,7 @@ class PineconeService:
                     "top_k": k
                 },
                 fields=["prompt"],
-                include_vectors=True  # Include actual embedding vectors
+                # include_values=True  # Not supported in this API version
             )
             
             # Format results
@@ -129,7 +129,7 @@ class PineconeService:
                     "prompt": hit.fields.get("prompt", ""),
                     "similarity_score": hit._score,
                     "video_id": hit._id,
-                    "embedding": hit.vector,  # Include the actual embedding vector
+                    "embedding": None,  # Embedding vectors not available in this API call
                     "metadata": {
                         "video_id": hit._id,
                         "score": hit._score,

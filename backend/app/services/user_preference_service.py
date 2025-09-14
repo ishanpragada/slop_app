@@ -8,6 +8,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from app.models.analytics_models import UserInteraction, UserInteractionWindow, UserPreference
 from app.services.pinecone_service import PineconeService
+from app.services.video_generation_queue_service import VideoGenerationQueueService
 
 class UserPreferenceService:
     def __init__(self):
@@ -19,13 +20,13 @@ class UserPreferenceService:
         
         # Interaction weights
         self.interaction_weights = {
-            "like": 1.0,      # Full influence
-            "save": 1.2,      # Stronger than like
-            "comment": 0.8,   # Good influence
-            "share": 0.9,     # Strong influence
-            "view": 0.3,      # Weak influence
-            "skip": -0.3,     # Slight negative influence
-            "dislike": -0.5   # Negative influence
+            "like": 2.0,      # Strong positive signal
+            "save": 2.5,      # Strongest positive signal (user wants to keep it)
+            "comment": 1.8,   # Strong engagement
+            "share": 2.2,     # Very strong positive signal (user shares with others)
+            "view": 1.0,      # Neutral baseline (user watched it)
+            "skip": 0.2,      # Very weak positive signal (still some engagement)
+            "dislike": 0.1    # Minimal positive signal (avoid zero to prevent divisions issues)
         }
         
         # Database connection parameters
@@ -50,6 +51,9 @@ class UserPreferenceService:
         
         # Initialize Pinecone service
         self.pinecone_service = PineconeService()
+        
+        # Initialize video generation queue service
+        self.video_queue_service = VideoGenerationQueueService()
     
     def _get_connection(self):
         """Get database connection"""
@@ -332,7 +336,7 @@ class UserPreferenceService:
                 with conn.cursor() as cur:
                     # Get the last 20 interactions for this user
                     cur.execute("""
-                        SELECT embedding, weight 
+                        SELECT embedding, interaction_type 
                         FROM user_interactions 
                         WHERE user_uid = %s 
                         ORDER BY timestamp DESC 
@@ -352,12 +356,15 @@ class UserPreferenceService:
                     weighted_sum = [0.0] * dimension
                     total_weight = 0.0
                     
-                    # Calculate weighted average
-                    for embedding, weight in interactions:
-                        for i in range(dimension):
-                            weighted_sum[i] += embedding[i] * weight
+                    # Calculate weighted average using current weights
+                    for embedding, interaction_type in interactions:
+                        # Use current weight configuration instead of stored weight
+                        current_weight = self.interaction_weights.get(interaction_type, 0.0)
                         
-                        total_weight += weight
+                        for i in range(dimension):
+                            weighted_sum[i] += embedding[i] * current_weight
+                        
+                        total_weight += current_weight
                     
                     # Calculate average
                     if total_weight > 0:
@@ -399,6 +406,20 @@ class UserPreferenceService:
                     
                     conn.commit()
                     print(f"✅ Updated user preference for user: {user_id}")
+                    
+                    # Trigger video generation queue creation for new preference vector
+                    try:
+                        print(f"🎬 Triggering video generation queue for user: {user_id}")
+                        queue_result = self.video_queue_service.process_new_preference_vector(user_id, preference_vector)
+                        
+                        if queue_result.get("success"):
+                            print(f"✅ Video generation queue created successfully: {queue_result.get('strategy', 'unknown')}")
+                        else:
+                            print(f"⚠️  Video generation queue creation failed: {queue_result.get('message', 'unknown error')}")
+                            
+                    except Exception as queue_error:
+                        print(f"❌ Error creating video generation queue: {queue_error}")
+                        # Don't raise - preference update should still succeed even if queue creation fails
                     
         except Exception as e:
             print(f"❌ Error saving user preference: {e}")

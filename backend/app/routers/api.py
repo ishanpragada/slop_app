@@ -16,6 +16,8 @@ from app.services.pinecone_service import PineconeService
 from app.services.analytics_service import AnalyticsService
 from app.services.user_preference_service import UserPreferenceService
 from app.services.database_service import DatabaseService
+from app.services.video_generation_queue_service import VideoGenerationQueueService
+from app.services.worker_manager_service import WorkerManagerService
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
@@ -31,6 +33,8 @@ pinecone_service = PineconeService()
 analytics_service = AnalyticsService()
 user_preference_service = UserPreferenceService()
 database_service = DatabaseService()
+video_queue_service = VideoGenerationQueueService()
+worker_manager_service = WorkerManagerService()
 
 # Import models from models package
 from app.models.video_generation_models import VideoGenerationRequest
@@ -897,6 +901,250 @@ async def remove_watched_video(user_id: str, video_id: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to remove watched video: {str(e)}")
+
+# ============================================================================
+# VIDEO GENERATION QUEUE ENDPOINTS
+# ============================================================================
+
+@router.get("/video-queue/{user_id}/status")
+async def get_video_queue_status(user_id: str):
+    """
+    Get the current status of a user's video generation queue
+    
+    Args:
+        user_id: User identifier
+        
+    Returns:
+        Queue status and items
+    """
+    try:
+        status = video_queue_service.get_user_queue_status(user_id)
+        return status
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get video queue status: {str(e)}")
+
+@router.post("/video-queue/{user_id}/process")
+async def process_user_preference_vector(user_id: str):
+    """
+    Manually trigger video queue processing for a user's current preference vector
+    (mainly for testing/admin purposes)
+    
+    Args:
+        user_id: User identifier
+        
+    Returns:
+        Processing results
+    """
+    try:
+        # Get user's current preference vector
+        preference = user_preference_service.get_user_preference(user_id)
+        
+        if not preference or not preference.preference_embedding:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No preference vector found for user {user_id}"
+            )
+        
+        # Process the preference vector
+        result = video_queue_service.process_new_preference_vector(
+            user_id, 
+            preference.preference_embedding
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process preference vector: {str(e)}")
+
+# ============================================================================
+# BACKGROUND WORKER MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.get("/workers/status")
+async def get_worker_status():
+    """
+    Get status of all background video workers
+    
+    Returns:
+        Worker status and statistics
+    """
+    try:
+        status = worker_manager_service.get_worker_status()
+        return status
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get worker status: {str(e)}")
+
+@router.get("/workers/health")
+async def get_system_health():
+    """
+    Get overall system health for video generation
+    
+    Returns:
+        System health status and component status
+    """
+    try:
+        health = worker_manager_service.get_system_health()
+        return health
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get system health: {str(e)}")
+
+@router.get("/workers/queue-stats")
+async def get_queue_statistics():
+    """
+    Get statistics about all video generation queues
+    
+    Returns:
+        Queue statistics and details
+    """
+    try:
+        stats = worker_manager_service.get_queue_statistics()
+        return stats
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get queue statistics: {str(e)}")
+
+@router.post("/workers/start")
+async def start_background_worker(background: bool = True):
+    """
+    Start a new background video worker
+    
+    Args:
+        background: Whether to start worker in background (default: True)
+        
+    Returns:
+        Worker start result
+    """
+    try:
+        result = worker_manager_service.start_worker(background=background)
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start worker: {str(e)}")
+
+@router.post("/workers/clear-stale")
+async def clear_stale_workers():
+    """
+    Clear worker registrations that are no longer active
+    
+    Returns:
+        Cleanup results
+    """
+    try:
+        result = worker_manager_service.clear_stale_workers()
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear stale workers: {str(e)}")
+
+@router.post("/workers/process-all-pending")
+async def process_all_pending_tasks():
+    """
+    Process all pending video generation tasks until queues are empty
+    (This is a synchronous operation that may take a while)
+    
+    Returns:
+        Processing results
+    """
+    try:
+        from app.services.background_video_worker import BackgroundVideoWorker
+        from datetime import datetime
+        
+        # Create a temporary worker for processing
+        worker = BackgroundVideoWorker()
+        worker.running = True
+        worker.stats["started_at"] = datetime.now().isoformat()
+        
+        # Process all pending tasks
+        total_processed = worker.process_all_pending_tasks()
+        
+        return {
+            "success": True,
+            "tasks_processed": total_processed,
+            "message": f"Successfully processed {total_processed} video generation tasks",
+            "completed_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process pending tasks: {str(e)}")
+
+@router.post("/workers/process-single-task")
+async def process_single_video_task(user_id: str = None):
+    """
+    Process a single video generation task from the queue
+    
+    Args:
+        user_id: Optional user ID to process task for (if not provided, processes for any user)
+    
+    Returns:
+        Task processing result
+    """
+    try:
+        from app.services.background_video_worker import BackgroundVideoWorker
+        from datetime import datetime
+        
+        worker = BackgroundVideoWorker()
+        
+        # If no user_id provided, find a user with pending tasks
+        if not user_id:
+            users_with_tasks = worker._get_all_users_with_pending_tasks()
+            if not users_with_tasks:
+                return {
+                    "success": False,
+                    "message": "No users with pending video generation tasks found"
+                }
+            user_id = users_with_tasks[0]
+        
+        # Get next task for the user
+        task = worker.queue_service.get_next_generation_task(user_id)
+        
+        if not task or task.get("type") != "generate_video":
+            return {
+                "success": False,
+                "message": f"No video generation tasks found for user {user_id}"
+            }
+        
+        # Process the task
+        success = worker._generate_video_for_task(user_id, task)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Successfully generated video for user {user_id}",
+                "task_prompt": task.get("prompt", ""),
+                "processed_at": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to generate video for user {user_id}",
+                "task_prompt": task.get("prompt", "")
+            }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process video task: {str(e)}")
+
+@router.get("/workers/logs")
+async def get_worker_logs(lines: int = 50):
+    """
+    Get recent worker logs
+    
+    Args:
+        lines: Number of log lines to return (default: 50)
+        
+    Returns:
+        Recent worker logs
+    """
+    try:
+        logs = worker_manager_service.get_worker_logs(lines=lines)
+        return logs
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get worker logs: {str(e)}")
 
 # ============================================================================
 # POSTGRESQL VIDEO DATABASE ENDPOINTS

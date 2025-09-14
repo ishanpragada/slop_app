@@ -10,6 +10,8 @@ interface UseVideoInteractionProps {
 
 interface UseVideoInteractionReturn {
   isLiked: boolean;
+  isLikeLoading: boolean;
+  likeError: string | null;
   watchTime: number;
   hasTrackedView: boolean;
   hasTrackedSkip: boolean;
@@ -25,12 +27,14 @@ export const useVideoInteraction = ({
   onInteractionTracked,
 }: UseVideoInteractionProps): UseVideoInteractionReturn => {
   const [isLiked, setIsLiked] = useState(false);
+  const [isLikeLoading, setIsLikeLoading] = useState(false);
+  const [likeError, setLikeError] = useState<string | null>(null);
   const [watchTime, setWatchTime] = useState(0);
   const [hasTrackedView, setHasTrackedView] = useState(false);
   const [hasTrackedSkip, setHasTrackedSkip] = useState(false);
   
   const watchTimeRef = useRef(0);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<number | null>(null);
   const hasTrackedInteractionRef = useRef(false);
 
   // Track watch time when video is active
@@ -105,18 +109,34 @@ export const useVideoInteraction = ({
   }, [userId, videoId, hasTrackedSkip, onInteractionTracked]);
 
   const handleLike = useCallback(async () => {
+    // Clear any previous errors
+    setLikeError(null);
+    
+    // Optimistic UI update - show red heart immediately
+    const newLikedState = !isLiked;
+    setIsLiked(newLikedState);
+    setIsLikeLoading(true);
+    
     try {
+      // Call backend to track the like
       const response = await userPreferenceService.trackLike(userId, videoId);
-      setIsLiked(!isLiked);
       onInteractionTracked?.(response);
       
       console.log('Like tracked:', {
         videoId,
-        isLiked: !isLiked,
+        isLiked: newLikedState,
         response
       });
     } catch (error) {
+      // Rollback optimistic update if backend call fails
       console.error('Error tracking like:', error);
+      setIsLiked(isLiked); // Revert to previous state
+      setLikeError('Failed to track like. Please try again.');
+      
+      // Clear error after 3 seconds
+      setTimeout(() => setLikeError(null), 3000);
+    } finally {
+      setIsLikeLoading(false);
     }
   }, [userId, videoId, isLiked, onInteractionTracked]);
 
@@ -130,6 +150,8 @@ export const useVideoInteraction = ({
 
   const resetInteraction = useCallback(() => {
     setIsLiked(false);
+    setIsLikeLoading(false);
+    setLikeError(null);
     setWatchTime(0);
     setHasTrackedView(false);
     setHasTrackedSkip(false);
@@ -144,6 +166,8 @@ export const useVideoInteraction = ({
 
   return {
     isLiked,
+    isLikeLoading,
+    likeError,
     watchTime,
     hasTrackedView,
     hasTrackedSkip,
